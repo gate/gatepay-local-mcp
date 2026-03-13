@@ -4,8 +4,8 @@ import {
   ExactEvmScheme,
   createSignerFromPrivateKey,
   wrapFetchWithPayment,
-} from "./x402-standalone/index.js";
-import { safeBase64Decode } from "./x402-standalone/utils.js";
+} from "../src/x402-standalone/index.js";
+import { safeBase64Decode } from "../src/x402-standalone/utils.js";
 
 config();
 

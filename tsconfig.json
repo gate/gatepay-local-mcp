@@ -16,6 +16,6 @@
     "baseUrl": ".",
     "types": ["node"]
   },
-  "include": ["*.ts", "x402-standalone/**/*.ts"],
+  "include": ["*.ts", "src/x402-standalone/**/*.ts", "test/fetch.ts", "src/index.ts"],
   "exclude": ["node_modules", "dist"]
 }
