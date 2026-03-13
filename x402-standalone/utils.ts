@@ -54,6 +54,7 @@ export function createNonce(): `0x${string}` {
 const DEFAULT_MAX_TIMEOUT_SECONDS = 600;
 
 export const CHAIN_ID_GATELAYER_TESTNET = 10087;
+export const CHAIN_ID_GATELAYER = 10088;
 
 export function getEvmChainIdFromNetwork(network: string): number {
   const s = network.trim();
@@ -66,6 +67,7 @@ export function getEvmChainIdFromNetwork(network: string): number {
     }
     return chainId;
   }
+  if (s === "gatelayer") return CHAIN_ID_GATELAYER;
   throw new Error(`unsupported network format: ${network} (expected eip155:CHAIN_ID or gatelayer_testnet)`);
 }
 
