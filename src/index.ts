@@ -16,7 +16,7 @@
  *   X402_DEBUG_LOG  (optional) path to file — when set, append debug logs here (tail -f to debug)
  */
 import { config } from "dotenv";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -33,7 +33,19 @@ import {
 } from "./x402-standalone/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: join(__dirname, ".env") });
+
+function findPackageRoot(startDir: string): string {
+  let dir = startDir;
+  for (;;) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = join(dir, "..");
+    if (parent === dir) return startDir;
+    dir = parent;
+  }
+}
+
+const packageRoot = findPackageRoot(__dirname);
+config({ path: join(packageRoot, ".env") });
 
 const LOG_PATH = process.env.X402_DEBUG_LOG ?? process.env.MCP_X402_DEBUG_LOG;
 const logStream = LOG_PATH

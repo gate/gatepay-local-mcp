@@ -83,16 +83,16 @@ pnpm install
 # Build (output in dist/)
 pnpm run build
 
-# Run MCP locally (reads .env for EVM_PRIVATE_KEY)
+# Run MCP locally (loads .env from package/repo root for EVM_PRIVATE_KEY)
 pnpm start
 # or without build step
 pnpm run dev
 
-# Run the fetch demo (see fetch.ts: POST to a configurable x402 endpoint)
+# Run the fetch demo (POST to a configurable x402 endpoint)
 pnpm run fetch
 ```
 
-`fetch.ts` demonstrates using the in-repo `wrapFetchWithPayment` to call an x402 endpoint (e.g. `http://localhost:8080/flight/order`); you can change URL, method, and body there.
+The fetch demo uses `RESOURCE_SERVER_URL` (default `http://localhost:4021`) and `ENDPOINT_PATH` (default `/weather`); set them in `.env` or the shell. See `test/fetch.ts` to change URL, method, or body.
 
 ## How it works
 

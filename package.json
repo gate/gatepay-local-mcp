@@ -1,5 +1,5 @@
 {
-  "name": "gatepay-local-mcp",
+  "name": "@andesmountain/gatepay-local-mcp",
   "version": "1.0.0",
   "description": "Gatepay Local (stdio) MCP server",
   "type": "module",
@@ -13,14 +13,15 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "pnpm run build",
+    "prepublishOnly": "npm run build",
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
     "test": "tsx test/fetch.ts",
+    "fetch": "tsx test/fetch.ts",
     "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
     "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
-    "lint": "eslint . --ext .ts --fix",
-    "lint:check": "eslint . --ext .ts"
+    "lint": "eslint . --fix",
+    "lint:check": "eslint ."
   },
   "dependencies": {
     "@noble/secp256k1": "^2.2.0",
@@ -37,6 +38,7 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "globals": "^15.14.0",
     "@types/node": "^22.0.0",
     "@eslint/js": "^9.24.0",
     "@typescript-eslint/eslint-plugin": "^8.29.1",
