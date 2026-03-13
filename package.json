@@ -1,12 +1,12 @@
 {
-  "name": "@andesmountain/gatepay-local-mcp",
+  "name": "gatepay-local-mcp",
   "version": "1.0.0",
   "description": "Gatepay Local (stdio) MCP server",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "x402-request": "dist/src/index.js"
+    "gatepay-mcp": "dist/src/index.js"
   },
   "files": [
     "dist"

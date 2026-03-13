@@ -1,4 +1,4 @@
-# gatepay-local-mcp (x402-request)
+# gatepay-local-mcp 
 
 A local (stdio) MCP server that sends HTTP requests to **x402 payment-protected** endpoints. On `402 Payment Required`, it creates the payment payload, signs with your EVM key, and retries the request with the payment header. Exposes a single tool: `x402_request`.
 
@@ -17,7 +17,7 @@ A local (stdio) MCP server that sends HTTP requests to **x402 payment-protected*
 ```json
 {
   "mcpServers": {
-    "x402-request": {
+    "gatepay-mcp": {
       "command": "npx",
       "args": ["-y", "gatepay-local-mcp"],
       "env": {
@@ -35,7 +35,7 @@ Put this in your MCP config (e.g. `~/.cursor/mcp.json`), then restart Cursor or 
 ```json
 {
   "mcpServers": {
-    "x402-request": {
+    "gatepay-mcp": {
       "command": "npx",
       "args": ["-y", "gatepay-local-mcp"],
       "env": {
