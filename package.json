@@ -16,6 +16,7 @@
     "prepublishOnly": "pnpm run build",
     "start": "tsx stdio-bridge-x402-request-standalone.ts",
     "dev": "tsx stdio-bridge-x402-request-standalone.ts",
+    "fetch": "tsx fetch.ts",
     "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
     "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
     "lint": "eslint . --ext .ts --fix",

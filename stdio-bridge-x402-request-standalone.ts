@@ -92,8 +92,9 @@ async function main(): Promise<void> {
 
   const evmSigner = createSignerFromPrivateKey(evmPrivateKey);
   const client = new X402ClientStandalone();
-  client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
-  client.register("gatelayer", new ExactEvmScheme(evmSigner));
+  //client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
+  client.register("eth", new ExactEvmScheme(evmSigner));
+  client.register("base", new ExactEvmScheme(evmSigner));
   const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
   const server = new Server({

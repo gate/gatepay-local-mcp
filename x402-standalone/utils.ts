@@ -55,6 +55,8 @@ const DEFAULT_MAX_TIMEOUT_SECONDS = 600;
 
 export const CHAIN_ID_GATELAYER_TESTNET = 10087;
 export const CHAIN_ID_GATELAYER = 10088;
+export const CHAIN_ID_ETH = 1;
+export const CHAIN_ID_BASE = 8453;
 
 export function getEvmChainIdFromNetwork(network: string): number {
   const s = network.trim();
@@ -68,6 +70,8 @@ export function getEvmChainIdFromNetwork(network: string): number {
     return chainId;
   }
   if (s === "gatelayer") return CHAIN_ID_GATELAYER;
+  if (s === "eth") return CHAIN_ID_ETH;
+  if (s === "base") return CHAIN_ID_BASE;
   throw new Error(`unsupported network format: ${network} (expected eip155:CHAIN_ID or gatelayer_testnet)`);
 }
 
