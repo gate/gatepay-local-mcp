@@ -93,7 +93,6 @@ const TOOL_DESCRIPTION =
   "Pass full url and JSON body string as documented in the Skill. Do not use for plain/public list endpoints.";
 
 async function main(): Promise<void> {
-  debugLog("x402-request bridge starting");
   const rawEvmKey = process.env.EVM_PRIVATE_KEY?.trim();
   if (!rawEvmKey) {
     debugLog("startup failed: EVM_PRIVATE_KEY missing");
