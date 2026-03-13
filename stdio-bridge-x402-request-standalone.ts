@@ -2,8 +2,8 @@
 /**
  * x402 stdio bridge — standalone, no @x402/* dependencies.
  *
- * All x402 logic is inlined under andes/x402-standalone/ so this package
- * can be published and run via `npx -y @andesmountain/x402-request` without
+ * All x402 logic is inlined under x402-standalone/ so this package
+ * can be published and run via `npx -y @gatepay/local-mcp` without
  * depending on unpublished @x402/core, @x402/evm, @x402/fetch.
  *
  * One MCP tool: x402_request
