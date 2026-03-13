@@ -1,0 +1,51 @@
+{
+  "name": "@andesmountain/x402-request",
+  "version": "1.0.4",
+  "description": "MCP stdio bridge for x402 payment-protected endpoints (single tool: x402_request)",
+  "type": "module",
+  "main": "dist/stdio-bridge-x402-request-standalone.js",
+  "types": "dist/stdio-bridge-x402-request-standalone.d.ts",
+  "bin": {
+    "x402-request": "dist/stdio-bridge-x402-request-standalone.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "pnpm run build",
+    "start": "tsx stdio-bridge-x402-request-standalone.ts",
+    "dev": "tsx stdio-bridge-x402-request-standalone.ts",
+    "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
+    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
+    "lint": "eslint . --ext .ts --fix",
+    "lint:check": "eslint . --ext .ts"
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^2.2.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "dotenv": "^16.4.7",
+    "viem": "^2.39.0"
+  },
+  "keywords": [
+    "x402",
+    "mcp",
+    "payment",
+    "stdio",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@eslint/js": "^9.24.0",
+    "@typescript-eslint/eslint-plugin": "^8.29.1",
+    "@typescript-eslint/parser": "^8.29.1",
+    "eslint": "^9.24.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-jsdoc": "^50.6.9",
+    "eslint-plugin-prettier": "^5.2.6",
+    "prettier": "3.5.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
