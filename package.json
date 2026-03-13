@@ -1,6 +1,6 @@
 {
   "name": "@andesmountain/x402-request",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "MCP stdio bridge for x402 payment-protected endpoints (single tool: x402_request)",
   "type": "module",
   "main": "dist/stdio-bridge-x402-request-standalone.js",
