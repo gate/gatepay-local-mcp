@@ -19,7 +19,7 @@ A local (stdio) MCP server that sends HTTP requests to **x402 payment-protected*
   "mcpServers": {
     "x402-request": {
       "command": "npx",
-      "args": ["-y", "@gatepay/gatepay-local-mcp"],
+      "args": ["-y", "gatepay-local-mcp"],
       "env": {
         "EVM_PRIVATE_KEY": "your-evm-private-key-hex-with-or-without-0x-prefix"
       }
@@ -37,10 +37,9 @@ Put this in your MCP config (e.g. `~/.cursor/mcp.json`), then restart Cursor or 
   "mcpServers": {
     "x402-request": {
       "command": "npx",
-      "args": ["-y", "@gatepay/local-mcp"],
+      "args": ["-y", "gatepay-local-mcp"],
       "env": {
-        "EVM_PRIVATE_KEY": "your-evm-private-key",
-        "X402_DEBUG_LOG": "/tmp/x402-debug.log"
+        "EVM_PRIVATE_KEY": "your-evm-private-key"
       }
     }
   }
