@@ -27,7 +27,9 @@ export function getPaymentRequiredResponse(
     body &&
     typeof body === "object" &&
     "x402Version" in body &&
-    (body as PaymentRequired).x402Version === 1
+    "resource" in body &&
+    "accepts" in body &&
+    Array.isArray((body as PaymentRequired).accepts)
   ) {
     return body as PaymentRequired;
   }

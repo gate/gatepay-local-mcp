@@ -41,13 +41,12 @@ async function main(): Promise<void> {
 
   const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
-  const flightOrderUrl = "http://localhost:8080/flight/order";
-  console.log(`Making request to: ${flightOrderUrl}\n`);
+  console.log(`Making request to: ${url}\n`);
 
-  const response = await fetchWithPayment(flightOrderUrl, {
+  const response = await fetchWithPayment(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ flightId: "FL001", uid: "100" }),
+    body: JSON.stringify({}),
   });
   const body = await response.json();
   console.log("Response body:", body);
