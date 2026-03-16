@@ -25,12 +25,10 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import {
-  X402ClientStandalone,
-  ExactEvmScheme,
-  createSignerFromPrivateKey,
-  wrapFetchWithPayment,
-} from "./x402-standalone/index.js";
+import { X402ClientStandalone } from "./x402-standalone/client.js";
+import { ExactEvmScheme } from "./x402-standalone/exactEvmScheme.js";
+import { createSignerFromPrivateKey } from "./x402-standalone/signer.js";
+import { wrapFetchWithPayment } from "./x402-standalone/fetch.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,23 +45,6 @@ function findPackageRoot(startDir: string): string {
 const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
 
-const LOG_PATH = process.env.X402_DEBUG_LOG ?? process.env.MCP_X402_DEBUG_LOG;
-const logStream = LOG_PATH
-  ? (() => {
-    try {
-      return createWriteStream(LOG_PATH, { flags: "a" });
-    } catch (e) {
-      console.error("X402 debug log open failed:", e);
-      return null;
-    }
-  })()
-  : null;
-
-function debugLog(msg: string, obj?: unknown): void {
-  if (!logStream) return;
-  const line = `${new Date().toISOString()} ${msg}${obj != null ? " " + JSON.stringify(obj) : ""}\n`;
-  logStream.write(line);
-}
 
 const TOOL_NAME = "x402_request";
 
@@ -95,7 +76,6 @@ const TOOL_DESCRIPTION =
 async function main(): Promise<void> {
   const rawEvmKey = process.env.EVM_PRIVATE_KEY?.trim();
   if (!rawEvmKey) {
-    debugLog("startup failed: EVM_PRIVATE_KEY missing");
     console.error("❌ EVM_PRIVATE_KEY is required (wallet private key for x402 payment)");
     process.exit(1);
   }
@@ -103,9 +83,13 @@ async function main(): Promise<void> {
 
   const evmSigner = createSignerFromPrivateKey(evmPrivateKey);
   const client = new X402ClientStandalone();
-  //client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
+  client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
   client.register("eth", new ExactEvmScheme(evmSigner));
   client.register("base", new ExactEvmScheme(evmSigner));
+  client.register("polygon", new ExactEvmScheme(evmSigner));
+  client.register("gatelayer", new ExactEvmScheme(evmSigner));
+  client.register("gatechain", new ExactEvmScheme(evmSigner));
+
   const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
   const server = new Server({
@@ -126,7 +110,6 @@ async function main(): Promise<void> {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    debugLog("tool call", { name, args });
     if (name !== TOOL_NAME) {
       return {
         content: [{ type: "text" as const, text: `未知工具: ${name}. 仅支持 ${TOOL_NAME}。` }],
@@ -173,10 +156,8 @@ async function main(): Promise<void> {
         };
       }
 
-      debugLog("fetch start", { url, method });
       const response = await fetchWithPayment(url, init);
       const responseText = await response.text();
-      debugLog("fetch done", { url, status: response.status, textLen: responseText.length });
 
       let text: string;
       try {
@@ -196,7 +177,6 @@ async function main(): Promise<void> {
       return { content: [{ type: "text" as const, text }], isError: false };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      debugLog("request error", { url, method, error: message, stack: err instanceof Error ? err.stack : undefined });
       const hint =
         message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
           ? " 请确认 url 可访问；402 支付需 EVM_PRIVATE_KEY 对应钱包有足够余额。"
@@ -213,7 +193,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  debugLog("fatal", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
   console.error("Fatal error:", err);
   process.exit(1);
 });
