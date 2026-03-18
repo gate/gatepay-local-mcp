@@ -27,16 +27,12 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import {
-  X402ClientStandalone,
-  ExactEvmScheme,
-  createSignerFromMcpWallet,
-  createSignerFromPrivateKey,
-  getMcpClient,
-  loadAuth,
-  loginWithDeviceFlow,
-  wrapFetchWithPayment,
-} from "./x402-standalone/index.js";
+
+import { X402ClientStandalone } from "./x402-standalone/client.js";
+import { ExactEvmScheme } from "./x402-standalone/exactEvmScheme.js";
+import {createSignerFromMcpWallet, createSignerFromPrivateKey} from "./x402-standalone/signer.js";
+import { wrapFetchWithPayment } from "./x402-standalone/fetch.js";
+import {getMcpClient, loadAuth, loginWithDeviceFlow} from "./x402-standalone";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,23 +49,6 @@ function findPackageRoot(startDir: string): string {
 const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
 
-const LOG_PATH = process.env.X402_DEBUG_LOG ?? process.env.MCP_X402_DEBUG_LOG;
-const logStream = LOG_PATH
-    ? (() => {
-      try {
-        return createWriteStream(LOG_PATH, { flags: "a" });
-      } catch (e) {
-        console.error("X402 debug log open failed:", e);
-        return null;
-      }
-    })()
-    : null;
-
-function debugLog(msg: string, obj?: unknown): void {
-  if (!logStream) return;
-  const line = `${new Date().toISOString()} ${msg}${obj != null ? " " + JSON.stringify(obj) : ""}\n`;
-  logStream.write(line);
-}
 
 const TOOL_NAME = "x402_request";
 
@@ -112,6 +91,7 @@ const TOOL_DESCRIPTION =
     "Pass full url and JSON body string as documented in the Skill.";
 
 async function main(): Promise<void> {
+
   const mcpWalletUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const mcpApiKey = process.env.MCP_WALLET_API_KEY;
 
@@ -129,8 +109,13 @@ async function main(): Promise<void> {
     const evmPrivateKey = (raw.startsWith("0x") ? raw : `0x${raw}`) as `0x${string}`;
     const signer = createSignerFromPrivateKey(evmPrivateKey);
     const c = new X402ClientStandalone();
+    c.register("gatelayer_testnet", new ExactEvmScheme(signer));
     c.register("eth", new ExactEvmScheme(signer));
     c.register("base", new ExactEvmScheme(signer));
+    c.register("Polygon", new ExactEvmScheme(signer));
+    c.register("gatelayer", new ExactEvmScheme(signer));
+    c.register("gatechain", new ExactEvmScheme(signer));
+    c.register("Arbitrum One", new ExactEvmScheme(signer));
     cachedLocalPayFetch = wrapFetchWithPayment(fetch, c);
     return cachedLocalPayFetch;
   }
@@ -168,8 +153,13 @@ async function main(): Promise<void> {
       }
       const signer = await createSignerFromMcpWallet(mcp);
       const c = new X402ClientStandalone();
+      c.register("gatelayer_testnet", new ExactEvmScheme(signer));
       c.register("eth", new ExactEvmScheme(signer));
       c.register("base", new ExactEvmScheme(signer));
+      c.register("Polygon", new ExactEvmScheme(signer));
+      c.register("gatelayer", new ExactEvmScheme(signer));
+      c.register("gatechain", new ExactEvmScheme(signer));
+      c.register("Arbitrum One", new ExactEvmScheme(signer));
       const wrapped = wrapFetchWithPayment(fetch, c);
       cachedQuickWalletPayFetch = wrapped;
       return wrapped;
@@ -197,7 +187,6 @@ async function main(): Promise<void> {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    debugLog("tool call", { name, args });
     if (name !== TOOL_NAME) {
       return {
         content: [{ type: "text" as const, text: `未知工具: ${name}. 仅支持 ${TOOL_NAME}。` }],
@@ -233,10 +222,6 @@ async function main(): Promise<void> {
               : getOrCreateLocalPayFetch();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      debugLog("pay fetch build failed", {
-        authMode: authMode || "local_private_key",
-        error: msg,
-      });
       return {
         content: [{ type: "text" as const, text: msg }],
         isError: true,
@@ -270,15 +255,8 @@ async function main(): Promise<void> {
         };
       }
 
-      debugLog("fetch start", {
-        url,
-        method,
-        authMode: authMode || "default",
-        walletLoginProvider: authMode === "quick_wallet" ? walletLoginProvider : undefined,
-      });
       const response = await payFetch(url, init);
       const responseText = await response.text();
-      debugLog("fetch done", { url, status: response.status, textLen: responseText.length });
 
       let text: string;
       try {
@@ -298,7 +276,6 @@ async function main(): Promise<void> {
       return { content: [{ type: "text" as const, text }], isError: false };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      debugLog("request error", { url, method, error: message, stack: err instanceof Error ? err.stack : undefined });
       const hint =
           message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
               ? " 请确认 url 可访问；402 支付需托管钱包已登录且有足够余额。"
@@ -315,7 +292,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  debugLog("fatal", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
   console.error("Fatal error:", err);
   process.exit(1);
 });

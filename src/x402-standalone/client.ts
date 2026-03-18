@@ -18,6 +18,7 @@ export class X402ClientStandalone {
   }
 
   async createPaymentPayload(paymentRequired: PaymentRequired): Promise<PaymentPayload> {
+    // 按accepts的顺序依次尝试，直到找到第一个支持的
     const requirements = this.selectPaymentRequirements(
       paymentRequired.x402Version,
       paymentRequired.accepts,

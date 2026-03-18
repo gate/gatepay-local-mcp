@@ -16,12 +16,6 @@
     "baseUrl": ".",
     "types": ["node"]
   },
-  "include": [
-    "*.ts",
-    "src/x402-standalone/**/*.ts",
-    "test/fetch.ts",
-    "test/mcp-x402-request-tool.ts",
-    "src/index.ts"
-  ],
+  "include": ["*.ts", "src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
