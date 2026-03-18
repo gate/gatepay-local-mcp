@@ -3,6 +3,9 @@
  */
 export { X402ClientStandalone } from "./client.js";
 export { ExactEvmScheme } from "./exactEvmScheme.js";
-export { createSignerFromPrivateKey } from "./signer.js";
+export { createSignerFromPrivateKey, createSignerFromMcpWallet } from "./signer.js";
+export { getMcpClient } from "./wallet/wallet-mcp-clients.js";
+export { loadAuth } from "./wallet/auth-token-store.js";
+export { loginWithDeviceFlow } from "./wallet/device-flow-login.js";
 export { wrapFetchWithPayment } from "./fetch.js";
 export type { PaymentRequired, PaymentRequirements } from "./types.js";

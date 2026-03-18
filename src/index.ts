@@ -12,8 +12,9 @@
  *   - body: JSON string for request body (POST/PUT/PATCH); omit for GET
  *
  * Env:
- *   EVM_PRIVATE_KEY (required; when run via npx, pass via MCP "env" config)
- *   X402_DEBUG_LOG  (optional) path to file — when set, append debug logs here (tail -f to debug)
+ *   EVM_PRIVATE_KEY — required for default x402_request (local EVM signing)
+ *   MCP_WALLET_URL / MCP_WALLET_API_KEY — for auth_mode quick_wallet (custodial MCP)
+ *   X402_DEBUG_LOG — optional debug log file path
  */
 import { config } from "dotenv";
 import { createWriteStream, existsSync } from "node:fs";
@@ -28,7 +29,11 @@ import {
 import {
   X402ClientStandalone,
   ExactEvmScheme,
+  createSignerFromMcpWallet,
   createSignerFromPrivateKey,
+  getMcpClient,
+  loadAuth,
+  loginWithDeviceFlow,
   wrapFetchWithPayment,
 } from "./x402-standalone/index.js";
 
@@ -49,15 +54,15 @@ config({ path: join(packageRoot, ".env") });
 
 const LOG_PATH = process.env.X402_DEBUG_LOG ?? process.env.MCP_X402_DEBUG_LOG;
 const logStream = LOG_PATH
-  ? (() => {
-    try {
-      return createWriteStream(LOG_PATH, { flags: "a" });
-    } catch (e) {
-      console.error("X402 debug log open failed:", e);
-      return null;
-    }
-  })()
-  : null;
+    ? (() => {
+      try {
+        return createWriteStream(LOG_PATH, { flags: "a" });
+      } catch (e) {
+        console.error("X402 debug log open failed:", e);
+        return null;
+      }
+    })()
+    : null;
 
 function debugLog(msg: string, obj?: unknown): void {
   if (!logStream) return;
@@ -73,7 +78,7 @@ const INPUT_SCHEMA = {
     url: {
       type: "string",
       description:
-        "Full URL of the x402-protected endpoint. Must be included in Skill; do not guess.",
+          "Full URL of the x402-protected endpoint. Must be included in Skill; do not guess.",
     },
     method: {
       type: "string",
@@ -82,31 +87,62 @@ const INPUT_SCHEMA = {
     body: {
       type: "string",
       description:
-        'JSON string request body for POST/PUT/PATCH. Omit for GET.',
+          'JSON string request body for POST/PUT/PATCH. Omit for GET.',
+    },
+    auth_mode: {
+      type: "string",
+      description:
+          "Optional. quick_wallet: custodial MCP wallet (Gate device-flow if no saved token). Omit: sign with EVM_PRIVATE_KEY (local private key).",
+      enum: ["quick_wallet"],
     },
   },
   required: ["url"],
 };
 
 const TOOL_DESCRIPTION =
-  "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
-  "Pass full url and JSON body string as documented in the Skill. Do not use for plain/public list endpoints.";
+    "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
+    "Pass full url and JSON body string as documented in the Skill. Do not use for plain/public list endpoints.";
 
 async function main(): Promise<void> {
-  const rawEvmKey = process.env.EVM_PRIVATE_KEY?.trim();
-  if (!rawEvmKey) {
-    debugLog("startup failed: EVM_PRIVATE_KEY missing");
-    console.error("❌ EVM_PRIVATE_KEY is required (wallet private key for x402 payment)");
-    process.exit(1);
-  }
-  const evmPrivateKey = (rawEvmKey.startsWith("0x") ? rawEvmKey : `0x${rawEvmKey}`) as `0x${string}`;
+  const mcpWalletUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const mcpApiKey = process.env.MCP_WALLET_API_KEY;
 
-  const evmSigner = createSignerFromPrivateKey(evmPrivateKey);
-  const client = new X402ClientStandalone();
-  //client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
-  client.register("eth", new ExactEvmScheme(evmSigner));
-  client.register("base", new ExactEvmScheme(evmSigner));
-  const fetchWithPayment = wrapFetchWithPayment(fetch, client);
+  function fetchWithLocalPrivateKey(): typeof fetch {
+    const raw = process.env.EVM_PRIVATE_KEY?.trim();
+    if (!raw) {
+      throw new Error(
+          "EVM_PRIVATE_KEY is not set. Configure it for default signing, or use auth_mode quick_wallet for custodial MCP.",
+      );
+    }
+    const evmPrivateKey = (raw.startsWith("0x") ? raw : `0x${raw}`) as `0x${string}`;
+    const signer = createSignerFromPrivateKey(evmPrivateKey);
+    const c = new X402ClientStandalone();
+    c.register("eth", new ExactEvmScheme(signer));
+    c.register("base", new ExactEvmScheme(signer));
+    return wrapFetchWithPayment(fetch, c);
+  }
+
+  async function fetchWithQuickWalletAuth(): Promise<typeof fetch> {
+    const mcp = await getMcpClient({ serverUrl: mcpWalletUrl, apiKey: mcpApiKey });
+    const savedAuth = loadAuth();
+    if (savedAuth?.mcp_token) {
+      mcp.setMcpToken(savedAuth.mcp_token);
+    } else {
+      console.error("[x402_request] quick_wallet: no saved token, starting Gate device-flow login…");
+      const loginOk = await loginWithDeviceFlow(mcp, mcpWalletUrl, false, "Gate", {
+        saveToken: true,
+        reportAddresses: false,
+      });
+      if (!loginOk) {
+        throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
+      }
+    }
+    const signer = await createSignerFromMcpWallet(mcp);
+    const c = new X402ClientStandalone();
+    c.register("eth", new ExactEvmScheme(signer));
+    c.register("base", new ExactEvmScheme(signer));
+    return wrapFetchWithPayment(fetch, c);
+  }
 
   const server = new Server({
     name: "x402 Paid Request Bridge (standalone)",
@@ -145,6 +181,26 @@ async function main(): Promise<void> {
 
     const method = String(params.method ?? "POST").trim().toUpperCase() || "POST";
     const bodyStr = params.body != null ? String(params.body) : "";
+    const authMode =
+        params.auth_mode != null ? String(params.auth_mode).trim() : "";
+
+    let payFetch: typeof fetch;
+    try {
+      payFetch =
+          authMode === "quick_wallet"
+              ? await fetchWithQuickWalletAuth()
+              : fetchWithLocalPrivateKey();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      debugLog("pay fetch build failed", {
+        authMode: authMode || "local_private_key",
+        error: msg,
+      });
+      return {
+        content: [{ type: "text" as const, text: msg }],
+        isError: true,
+      };
+    }
 
     try {
       let init: RequestInit;
@@ -173,8 +229,8 @@ async function main(): Promise<void> {
         };
       }
 
-      debugLog("fetch start", { url, method });
-      const response = await fetchWithPayment(url, init);
+      debugLog("fetch start", { url, method, authMode: authMode || "default" });
+      const response = await payFetch(url, init);
       const responseText = await response.text();
       debugLog("fetch done", { url, status: response.status, textLen: responseText.length });
 
@@ -198,9 +254,9 @@ async function main(): Promise<void> {
       const message = err instanceof Error ? err.message : String(err);
       debugLog("request error", { url, method, error: message, stack: err instanceof Error ? err.stack : undefined });
       const hint =
-        message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
-          ? " 请确认 url 可访问；402 支付需 EVM_PRIVATE_KEY 对应钱包有足够余额。"
-          : "";
+          message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
+              ? " 请确认 url 可访问；402 支付需托管钱包已登录且有足够余额。"
+              : "";
       return {
         content: [{ type: "text" as const, text: `请求失败: ${message}.${hint}` }],
         isError: true,
