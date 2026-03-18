@@ -86,9 +86,10 @@ async function main(): Promise<void> {
   client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
   client.register("eth", new ExactEvmScheme(evmSigner));
   client.register("base", new ExactEvmScheme(evmSigner));
-  client.register("polygon", new ExactEvmScheme(evmSigner));
+  client.register("Polygon", new ExactEvmScheme(evmSigner));
   client.register("gatelayer", new ExactEvmScheme(evmSigner));
   client.register("gatechain", new ExactEvmScheme(evmSigner));
+  client.register("Arbitrum One", new ExactEvmScheme(evmSigner));
 
   const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
