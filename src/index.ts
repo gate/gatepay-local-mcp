@@ -107,7 +107,11 @@ async function main(): Promise<void> {
   const mcpWalletUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const mcpApiKey = process.env.MCP_WALLET_API_KEY;
 
-  function fetchWithLocalPrivateKey(): typeof fetch {
+  /** 本地私钥模式：首次成功后复用同一套 client + wrapFetch */
+  let cachedLocalPayFetch: typeof fetch | undefined;
+
+  function getOrCreateLocalPayFetch(): typeof fetch {
+    if (cachedLocalPayFetch) return cachedLocalPayFetch;
     const raw = process.env.EVM_PRIVATE_KEY?.trim();
     if (!raw) {
       throw new Error(
@@ -119,29 +123,44 @@ async function main(): Promise<void> {
     const c = new X402ClientStandalone();
     c.register("eth", new ExactEvmScheme(signer));
     c.register("base", new ExactEvmScheme(signer));
-    return wrapFetchWithPayment(fetch, c);
+    cachedLocalPayFetch = wrapFetchWithPayment(fetch, c);
+    return cachedLocalPayFetch;
   }
 
-  async function fetchWithQuickWalletAuth(): Promise<typeof fetch> {
-    const mcp = await getMcpClient({ serverUrl: mcpWalletUrl, apiKey: mcpApiKey });
-    const savedAuth = loadAuth();
-    if (savedAuth?.mcp_token) {
-      mcp.setMcpToken(savedAuth.mcp_token);
-    } else {
-      console.error("[x402_request] quick_wallet: no saved token, starting Gate device-flow login…");
-      const loginOk = await loginWithDeviceFlow(mcp, mcpWalletUrl, false, "Gate", {
-        saveToken: true,
-        reportAddresses: false,
+  /** quick_wallet：首次成功后复用；并发共用一个初始化 Promise；失败不缓存以便重试 */
+  let cachedQuickWalletPayFetch: typeof fetch | undefined;
+  let quickWalletInitPromise: Promise<typeof fetch> | undefined;
+
+  async function getOrCreateQuickWalletPayFetch(): Promise<typeof fetch> {
+    if (cachedQuickWalletPayFetch) return cachedQuickWalletPayFetch;
+    if (!quickWalletInitPromise) {
+      quickWalletInitPromise = (async () => {
+        const mcp = await getMcpClient({ serverUrl: mcpWalletUrl, apiKey: mcpApiKey });
+        const savedAuth = loadAuth();
+        if (savedAuth?.mcp_token) {
+          mcp.setMcpToken(savedAuth.mcp_token);
+        } else {
+          console.error("[x402_request] quick_wallet: no saved token, starting Gate device-flow login…");
+          const loginOk = await loginWithDeviceFlow(mcp, mcpWalletUrl, false, "Gate", {
+            saveToken: true,
+            reportAddresses: false,
+          });
+          if (!loginOk) {
+            throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
+          }
+        }
+        const signer = await createSignerFromMcpWallet(mcp);
+        const c = new X402ClientStandalone();
+        c.register("eth", new ExactEvmScheme(signer));
+        c.register("base", new ExactEvmScheme(signer));
+        const wrapped = wrapFetchWithPayment(fetch, c);
+        cachedQuickWalletPayFetch = wrapped;
+        return wrapped;
+      })().finally(() => {
+        quickWalletInitPromise = undefined;
       });
-      if (!loginOk) {
-        throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
-      }
     }
-    const signer = await createSignerFromMcpWallet(mcp);
-    const c = new X402ClientStandalone();
-    c.register("eth", new ExactEvmScheme(signer));
-    c.register("base", new ExactEvmScheme(signer));
-    return wrapFetchWithPayment(fetch, c);
+    return quickWalletInitPromise;
   }
 
   const server = new Server({
@@ -188,8 +207,8 @@ async function main(): Promise<void> {
     try {
       payFetch =
           authMode === "quick_wallet"
-              ? await fetchWithQuickWalletAuth()
-              : fetchWithLocalPrivateKey();
+              ? await getOrCreateQuickWalletPayFetch()
+              : getOrCreateLocalPayFetch();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       debugLog("pay fetch build failed", {
