@@ -32,7 +32,9 @@ import { X402ClientStandalone } from "./x402-standalone/client.js";
 import { ExactEvmScheme } from "./x402-standalone/exactEvmScheme.js";
 import {createSignerFromMcpWallet, createSignerFromPrivateKey} from "./x402-standalone/signer.js";
 import { wrapFetchWithPayment } from "./x402-standalone/fetch.js";
-import {getMcpClient, loadAuth, loginWithDeviceFlow} from "./x402-standalone";
+import { loadAuth } from "./x402-standalone/wallet/auth-token-store.js";
+import { loginWithDeviceFlow } from "./x402-standalone/wallet/device-flow-login.js";
+import { GateMcpClient, getMcpClient } from "./x402-standalone/wallet/wallet-mcp-clients.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
