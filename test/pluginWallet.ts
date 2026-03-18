@@ -1,36 +1,41 @@
-/**
- * 示例：调用 MCP 工具 dex_wallet_sign_transaction
- * 使用随便编的测试数据，实际会因未登录/无效数据返回错误，仅演示调用方式
- */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const MCP_URL = "https://walletmcp.gate.com/mcp?token=HqVNjKcAuEPjxCJsAuuzh";
+const MCP_URL = "https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73";
 
 async function main() {
   const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));
   const client = new Client(
-    { name: "call-sign-tx-client", version: "1.0.0" },
+    { name: "call-sign-message-client", version: "1.0.0" },
     {}
   );
 
   await client.connect(transport);
 
-  // 调用 dex_wallet_sign_transaction，参数随便编的
-  const result = await client.callTool({
+  const connectResult = await client.callTool({
     name: "connect_wallet",
+    arguments: {},
+  });
+
+  const connectText =
+    Array.isArray(connectResult.content) &&
+    connectResult.content[0] &&
+    "text" in connectResult.content[0]
+      ? connectResult.content[0].text
+      : "";
+
+  const connectData = JSON.parse(connectText);
+  const address = connectData.accounts?.[0];
+
+  const signResult = await client.callTool({
+    name: "sign_message",
     arguments: {
+      message: "hello gatepay",
+      address,
     },
   });
 
-  console.log("调用结果:", JSON.stringify(result, null, 2));
-
-  const content = Array.isArray(result.content) ? result.content : [];
-  for (const item of content) {
-    if (item && typeof item === "object" && "type" in item && item.type === "text" && "text" in item) {
-      console.log("\n服务端返回:", item.text);
-    }
-  }
+  console.log("签名结果:", JSON.stringify(signResult, null, 2));
 
   await transport.close();
 }
