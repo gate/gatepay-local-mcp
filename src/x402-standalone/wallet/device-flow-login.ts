@@ -31,12 +31,12 @@ export async function openBrowser(url: string): Promise<boolean> {
 
 function printManualUrl(url: string): void {
   const termLink = `\x1b]8;;${url}\x1b\\Click here to open\x1b]8;;\x1b\\`;
-  console.log();
-  console.log(`\x1b[33m⚠  Could not open browser automatically.\x1b[0m`);
-  console.log(`\x1b[1m   ${termLink}\x1b[0m  or copy the URL below:`);
-  console.log();
-  console.log(`   \x1b[36m${url}\x1b[0m`);
-  console.log();
+  console.error("");
+  console.error(`\x1b[33m⚠  Could not open browser automatically.\x1b[0m`);
+  console.error(`\x1b[1m   ${termLink}\x1b[0m  or copy the URL below:`);
+  console.error("");
+  console.error(`   \x1b[36m${url}\x1b[0m`);
+  console.error("");
 }
 
 // ─── 类型与工具 ───────────────────────────────────────────
@@ -108,7 +108,7 @@ const CHAIN_ADDRESS_MAP: Record<
 };
 
 async function reportWalletAddresses(mcp: GateMcpClient): Promise<void> {
-  console.log("Reporting wallet addresses...");
+  console.error("Reporting wallet addresses...");
 
   try {
     const addrResult = await mcp.callTool("wallet.get_addresses");
@@ -146,11 +146,11 @@ async function reportWalletAddresses(mcp: GateMcpClient): Promise<void> {
     }>(reportResult);
 
     if (report?.wallets?.length) {
-      console.log(
+      console.error(
         `Wallet addresses reported (${chainAddressList.length} chains)`,
       );
       for (const w of report.wallets) {
-        console.log(`  walletID: ${w.walletID}`);
+        console.error(`  walletID: ${w.walletID}`);
       }
     } else {
       console.warn("Wallet report returned empty result");
@@ -182,7 +182,7 @@ export async function loginWithDeviceFlow(
 ): Promise<DeviceFlowLoginResult> {
   const { saveToken = true, reportAddresses = true } = options ?? {};
 
-  console.log(`Starting ${provider} OAuth login...`);
+  console.error(`Starting ${provider} OAuth login...`);
 
   let startResult;
   try {
@@ -211,22 +211,22 @@ export async function loginWithDeviceFlow(
   const expiresInSec = parsed.expires_in ?? 1800;
   const deadline = Date.now() + expiresInSec * 1000;
 
-  console.log("Login flow started (MCP device flow)");
-  console.log(`  flow_id: ${parsed.flow_id}`);
-  console.log(`  poll interval: ${intervalMs / 1000}s, expires_in: ${expiresInSec}s`);
+  console.error("Login flow started (MCP device flow)");
+  console.error(`  flow_id: ${parsed.flow_id}`);
+  console.error(`  poll interval: ${intervalMs / 1000}s, expires_in: ${expiresInSec}s`);
 
   if (parsed.user_code) {
-    console.log(`  Code: ${parsed.user_code}`);
+    console.error(`  Code: ${parsed.user_code}`);
   }
 
   const opened = await openBrowser(parsed.verification_url);
   if (opened) {
-    console.log("  ✔ Browser opened — please authorize there.");
+    console.error("  ✔ Browser opened — please authorize there.");
   } else {
-    console.log("  → Open the URL above in browser to authorize.");
+    console.error("  → Open the URL above in browser to authorize.");
   }
 
-  console.log("Waiting for authorization (polling MCP)...");
+  console.error("Waiting for authorization (polling MCP)...");
   let cancelled = false;
   const onSigint = () => {
     cancelled = true;
@@ -238,7 +238,7 @@ export async function loginWithDeviceFlow(
     await sleep(intervalMs);
     pollCount += 1;
     const remainingSec = Math.round((deadline - Date.now()) / 1000);
-    console.log(`  [poll #${pollCount}] auth.${isGoogle ? "google" : "gate"}_login_poll(flow_id=${parsed.flow_id.slice(0, 12)}...) — remaining ~${remainingSec}s`);
+    console.error(`  [poll #${pollCount}] auth.${isGoogle ? "google" : "gate"}_login_poll(flow_id=${parsed.flow_id.slice(0, 12)}...) — remaining ~${remainingSec}s`);
 
     try {
       const pollResult = isGoogle
@@ -262,10 +262,10 @@ export async function loginWithDeviceFlow(
       }>(pollResult);
 
       if (!poll) {
-        console.log(`  [poll #${pollCount}] MCP returned no parseable result (pending?), continuing...`);
+        console.error(`  [poll #${pollCount}] MCP returned no parseable result (pending?), continuing...`);
         continue;
       }
-      console.log(`  [poll #${pollCount}] MCP status: ${poll.status}${poll.error ? ` error=${poll.error}` : ""}`);
+      console.error(`  [poll #${pollCount}] MCP status: ${poll.status}${poll.error ? ` error=${poll.error}` : ""}`);
 
       if (poll.status === "ok") {
         const login = poll.login_result;
@@ -276,7 +276,7 @@ export async function loginWithDeviceFlow(
         if (token) {
           mcp.setMcpToken(token);
           process.removeListener("SIGINT", onSigint);
-          console.log("Login successful!");
+          console.error("Login successful!");
 
           if (saveToken) {
             saveAuth({
@@ -291,11 +291,11 @@ export async function loginWithDeviceFlow(
             });
           }
 
-          console.log();
-          if (userId) console.log(`  User ID: ${userId}`);
-          console.log(`  Wallet: custodial (${provider})`);
+          console.error("");
+          if (userId) console.error(`  User ID: ${userId}`);
+          console.error(`  Wallet: custodial (${provider})`);
           if (saveToken) {
-            console.log(`  Token saved to ${getAuthFilePath()}`);
+            console.error(`  Token saved to ${getAuthFilePath()}`);
           }
 
           if (reportAddresses) {

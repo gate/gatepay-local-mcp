@@ -94,6 +94,15 @@ pnpm run fetch
 
 The fetch demo uses `RESOURCE_SERVER_URL` (default `http://localhost:4021`) and `ENDPOINT_PATH` (default `/weather`); set them in `.env` or the shell. See `test/fetch.ts` to change URL, method, or body.
 
+**MCP tool integration test** (spawns `dist/src/index.js`; by default hits **remote MCP wallet** + flight/order):
+
+```bash
+pnpm run build
+MCP_WALLET_API_KEY=your-key pnpm run test:mcp-tool
+```
+
+Requires saved `~/.gate-pay/auth.json` (or interactive device login). Optional: `GATEPAY_MCP_TEST_TIMEOUT_MS`.
+
 ## How it works
 
 - On first request, the server may respond with `402` and `PAYMENT-REQUIRED` (or a JSON body with payment requirements).

@@ -17,6 +17,7 @@
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
     "test": "tsx test/fetch.ts",
+    "test:mcp-tool": "tsx test/mcp-x402-request-tool.ts",
     "test:wallet-mcp": "tsx test/wallet-mcp-auth.ts",
     "test:device-flow-login": "tsx test/device-flow-login.ts",
     "test:signer-mcp": "tsx test/signer-mcp-wallet.ts",

@@ -98,7 +98,7 @@ export class GateMcpClient {
   async connect(): Promise<void> {
     const url = new URL(this.config.serverUrl);
     const apiKey = this.config.apiKey ?? "MCP_AK_8W2N7Q";
-    console.log(`[MCP] connect: url=${url.href} hasApiKey=${Boolean(apiKey)}`);
+    console.error(`[MCP] connect: url=${url.href} hasApiKey=${Boolean(apiKey)}`);
 
     const self = this;
     const mcpFetch: typeof fetch = async (input, init) => {
@@ -206,10 +206,10 @@ export class GateMcpClient {
         ? { ...args, mcp_token: this.mcpToken }
         : args;
     const logArgs = maskSensitiveArgs(finalArgs);
-    console.log(`[MCP] callTool in: name=${name} arguments=${JSON.stringify(logArgs)}`);
+    console.error(`[MCP] callTool in: name=${name} arguments=${JSON.stringify(logArgs)}`);
     const result = await this.client!.callTool({ name, arguments: finalArgs });
     const logOut = summarizeToolResult(result);
-    console.log(`[MCP] callTool out: name=${name} ${logOut}`);
+    console.error(`[MCP] callTool out: name=${name} ${logOut}`);
     return result;
   }
 
