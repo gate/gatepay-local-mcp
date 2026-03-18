@@ -14,6 +14,7 @@
  * Env:
  *   EVM_PRIVATE_KEY — required for default x402_request (local EVM signing)
  *   MCP_WALLET_URL / MCP_WALLET_API_KEY — for auth_mode quick_wallet (custodial MCP)
+ *   quick_wallet with no local token: use tool arg wallet_login_provider (google | gate) for OAuth
  *   X402_DEBUG_LOG — optional debug log file path
  */
 import { config } from "dotenv";
@@ -92,8 +93,14 @@ const INPUT_SCHEMA = {
     auth_mode: {
       type: "string",
       description:
-          "Optional. quick_wallet: custodial MCP wallet (Gate device-flow if no saved token). Omit: sign with EVM_PRIVATE_KEY (local private key).",
+          "Optional. quick_wallet: custodial MCP wallet. Omit: sign with EVM_PRIVATE_KEY.",
       enum: ["quick_wallet"],
+    },
+    wallet_login_provider: {
+      type: "string",
+      description:
+          "When auth_mode is quick_wallet and login is required (no saved token): OAuth provider. google = Google account, gate = Gate account. User picks in chat; model passes their choice. Defaults to gate if omitted.",
+      enum: ["google", "gate"],
     },
   },
   required: ["url"],
@@ -101,13 +108,14 @@ const INPUT_SCHEMA = {
 
 const TOOL_DESCRIPTION =
     "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
-    "Pass full url and JSON body string as documented in the Skill. Do not use for plain/public list endpoints.";
+    "For quick_wallet first-time login, set wallet_login_provider to google or gate according to what the user chose in chat. " +
+    "Pass full url and JSON body string as documented in the Skill.";
 
 async function main(): Promise<void> {
   const mcpWalletUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const mcpApiKey = process.env.MCP_WALLET_API_KEY;
 
-  /** 本地私钥模式：首次成功后复用同一套 client + wrapFetch */
+  /** Local private key mode: reuse same client + wrapFetch after first success */
   let cachedLocalPayFetch: typeof fetch | undefined;
 
   function getOrCreateLocalPayFetch(): typeof fetch {
@@ -127,39 +135,47 @@ async function main(): Promise<void> {
     return cachedLocalPayFetch;
   }
 
-  /** quick_wallet：首次成功后复用；并发共用一个初始化 Promise；失败不缓存以便重试 */
+  /** quick_wallet: reuse after first success; concurrent callers share one init promise; failures are not cached so retry works */
   let cachedQuickWalletPayFetch: typeof fetch | undefined;
   let quickWalletInitPromise: Promise<typeof fetch> | undefined;
 
-  async function getOrCreateQuickWalletPayFetch(): Promise<typeof fetch> {
+  async function getOrCreateQuickWalletPayFetch(
+      walletLoginProvider: "google" | "gate",
+  ): Promise<typeof fetch> {
     if (cachedQuickWalletPayFetch) return cachedQuickWalletPayFetch;
-    if (!quickWalletInitPromise) {
-      quickWalletInitPromise = (async () => {
-        const mcp = await getMcpClient({ serverUrl: mcpWalletUrl, apiKey: mcpApiKey });
-        const savedAuth = loadAuth();
-        if (savedAuth?.mcp_token) {
-          mcp.setMcpToken(savedAuth.mcp_token);
-        } else {
-          console.error("[x402_request] quick_wallet: no saved token, starting Gate device-flow login…");
-          const loginOk = await loginWithDeviceFlow(mcp, mcpWalletUrl, false, "Gate", {
-            saveToken: true,
-            reportAddresses: false,
-          });
-          if (!loginOk) {
-            throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
-          }
-        }
-        const signer = await createSignerFromMcpWallet(mcp);
-        const c = new X402ClientStandalone();
-        c.register("eth", new ExactEvmScheme(signer));
-        c.register("base", new ExactEvmScheme(signer));
-        const wrapped = wrapFetchWithPayment(fetch, c);
-        cachedQuickWalletPayFetch = wrapped;
-        return wrapped;
-      })().finally(() => {
-        quickWalletInitPromise = undefined;
-      });
+    while (quickWalletInitPromise) {
+      await quickWalletInitPromise;
+      if (cachedQuickWalletPayFetch) return cachedQuickWalletPayFetch;
     }
+    const isGoogle = walletLoginProvider === "google";
+    const providerLabel = isGoogle ? "Google" : "Gate";
+    quickWalletInitPromise = (async () => {
+      const mcp = await getMcpClient({ serverUrl: mcpWalletUrl, apiKey: mcpApiKey });
+      const savedAuth = loadAuth();
+      if (savedAuth?.mcp_token) {
+        mcp.setMcpToken(savedAuth.mcp_token);
+      } else {
+        console.error(
+            `[x402_request] quick_wallet: no saved token, starting ${providerLabel} device-flow login…`,
+        );
+        const loginOk = await loginWithDeviceFlow(mcp, mcpWalletUrl, isGoogle, providerLabel, {
+          saveToken: true,
+          reportAddresses: false,
+        });
+        if (!loginOk) {
+          throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
+        }
+      }
+      const signer = await createSignerFromMcpWallet(mcp);
+      const c = new X402ClientStandalone();
+      c.register("eth", new ExactEvmScheme(signer));
+      c.register("base", new ExactEvmScheme(signer));
+      const wrapped = wrapFetchWithPayment(fetch, c);
+      cachedQuickWalletPayFetch = wrapped;
+      return wrapped;
+    })().finally(() => {
+      quickWalletInitPromise = undefined;
+    });
     return quickWalletInitPromise;
   }
 
@@ -202,12 +218,18 @@ async function main(): Promise<void> {
     const bodyStr = params.body != null ? String(params.body) : "";
     const authMode =
         params.auth_mode != null ? String(params.auth_mode).trim() : "";
+    const walletLoginRaw =
+        params.wallet_login_provider != null
+            ? String(params.wallet_login_provider).trim().toLowerCase()
+            : "";
+    const walletLoginProvider: "google" | "gate" =
+        walletLoginRaw === "google" ? "google" : "gate";
 
     let payFetch: typeof fetch;
     try {
       payFetch =
           authMode === "quick_wallet"
-              ? await getOrCreateQuickWalletPayFetch()
+              ? await getOrCreateQuickWalletPayFetch(walletLoginProvider)
               : getOrCreateLocalPayFetch();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -248,7 +270,12 @@ async function main(): Promise<void> {
         };
       }
 
-      debugLog("fetch start", { url, method, authMode: authMode || "default" });
+      debugLog("fetch start", {
+        url,
+        method,
+        authMode: authMode || "default",
+        walletLoginProvider: authMode === "quick_wallet" ? walletLoginProvider : undefined,
+      });
       const response = await payFetch(url, init);
       const responseText = await response.text();
       debugLog("fetch done", { url, status: response.status, textLen: responseText.length });
