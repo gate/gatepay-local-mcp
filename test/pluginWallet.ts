@@ -24,8 +24,12 @@ async function main() {
       ? connectResult.content[0].text
       : "";
 
+  console.log("connectText", connectText);
   const connectData = JSON.parse(connectText);
   const address = connectData.accounts?.[0];
+
+
+  
 
   const signResult = await client.callTool({
     name: "sign_message",
