@@ -146,19 +146,19 @@ export class GateMcpClient {
   // ─── 认证 Tools（托管钱包用）──────────────────────────
 
   async authGateLoginStart() {
-    return this.callTool("auth.gate_login_start");
+    return this.callTool("dex_auth_gate_login_start");
   }
 
   async authGateLoginPoll(flowId: string) {
-    return this.callTool("auth.gate_login_poll", { flow_id: flowId });
+    return this.callTool("dex_auth_gate_login_poll", { flow_id: flowId });
   }
 
   async authGoogleLoginStart() {
-    return this.callTool("auth.google_login_start");
+    return this.callTool("dex_auth_google_login_start");
   }
 
   async authGoogleLoginPoll(flowId: string) {
-    return this.callTool("auth.google_login_poll", { flow_id: flowId });
+    return this.callTool("dex_auth_google_login_poll", { flow_id: flowId });
   }
 
   /**
@@ -182,7 +182,7 @@ export class GateMcpClient {
 
   async authLogout() {
     if (!this.mcpToken) return;
-    const result = await this.callTool("auth.logout", {
+    const result = await this.callTool("dex_auth_logout", {
       mcp_token: this.mcpToken,
     });
     this.mcpToken = null;
@@ -253,23 +253,23 @@ export class GateMcpClient {
   // ─── 托管钱包操作（需 mcp_token）─────────────────────
 
   async walletGetAddresses() {
-    return this.callTool("wallet.get_addresses");
+    return this.callTool("dex_wallet_get_addresses");
   }
 
   async walletGetTokenList(chain?: string) {
-    return this.callTool("wallet.get_token_list", chain ? { chain } : {});
+    return this.callTool("dex_wallet_get_token_list", chain ? { chain } : {});
   }
 
   async walletGetTotalAsset() {
-    return this.callTool("wallet.get_total_asset");
+    return this.callTool("dex_wallet_get_total_asset");
   }
 
   async walletSignMessage(chain: string, message: string) {
-    return this.callTool("wallet.sign_message", { chain, message });
+    return this.callTool("dex_wallet_sign_message", { chain, message });
   }
 
   async walletSignTransaction(chain: string, txData: Record<string, unknown>) {
-    return this.callTool("wallet.sign_transaction", { chain, ...txData });
+    return this.callTool("dex_wallet_sign_transaction", { chain, ...txData });
   }
 
   // ─── 市场数据（公开，无需认证）───────────────────────
