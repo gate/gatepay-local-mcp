@@ -8,7 +8,7 @@
  */
 
 import { config } from "dotenv";
-import { getMcpClient } from "../src/x402-standalone/wallet/wallet-mcp-clients.js";
+import { getMcpClient } from "../src/wallets/wallet-mcp-clients.js";
 
 config();
 

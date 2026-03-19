@@ -1,70 +1,100 @@
-import { config } from "dotenv";
-import { X402ClientStandalone } from "../src/x402-standalone/client.js";
-import { ExactEvmScheme } from "../src/x402-standalone/exactEvmScheme.js";
-import { createSignerFromPrivateKey } from "../src/x402-standalone/signer.js";
-import { wrapFetchWithPayment } from "../src/x402-standalone/fetch.js";
-import { safeBase64Decode } from "../src/x402-standalone/utils.js";
-
-config();
-
-const evmPrivateKey = process.env.EVM_PRIVATE_KEY as `0x${string}`;
-const baseURL = process.env.RESOURCE_SERVER_URL || "http://localhost:8080";
-const endpointPath = process.env.ENDPOINT_PATH || "/flight/order";
-const url = `${baseURL}${endpointPath}`;
-
-function getPaymentSettleResponse(getHeader: (name: string) => string | null): unknown {
-  const raw =
-    getHeader("PAYMENT-RESPONSE") ?? getHeader("X-PAYMENT-RESPONSE") ?? null;
-  if (!raw) return null;
-  try {
-    return JSON.parse(safeBase64Decode(raw)) as unknown;
-  } catch {
-    return { raw };
-  }
-}
-
 /**
- * Example: use project-internal x402-standalone to request x402-protected endpoints.
+ * 直接用 src 里的代码发起 x402 请求：local_private_key → 本地私钥签名 → flight/order。
+ * 不经过 MCP 子进程，方便断点调试。
  *
- * Registers gatelayer_testnet + exact EVM scheme only (no @x402/* deps).
- *
- * Required environment variables:
- * - EVM_PRIVATE_KEY: The private key of the EVM signer
+ * 可选环境变量：
+ * - EVM_PRIVATE_KEY：本地私钥（必需）
+ * - RESOURCE_SERVER_URL：目标服务器地址，默认 https://webws.gate.io:443
+ * - ENDPOINT_PATH：接口路径，默认 /flight/order
+ * - 可在项目根目录 .env 中配置
  */
-async function main(): Promise<void> {
-  const evmSigner = createSignerFromPrivateKey(evmPrivateKey);
-  const client = new X402ClientStandalone();
-  client.register("gatelayer_testnet", new ExactEvmScheme(evmSigner));
-  client.register("eth", new ExactEvmScheme(evmSigner));
-  client.register("base", new ExactEvmScheme(evmSigner));
-  client.register("Polygon", new ExactEvmScheme(evmSigner));
-  client.register("gatelayer", new ExactEvmScheme(evmSigner));
-  client.register("gatechain", new ExactEvmScheme(evmSigner));
-  client.register("Arbitrum One", new ExactEvmScheme(evmSigner));
+import { config } from "dotenv";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-  const fetchWithPayment = wrapFetchWithPayment(fetch, client);
+import { LocalPrivateKeyMode } from "../src/modes/local-private-key.js";
+import {
+  createSignModeRegistry,
+  formatSignModeSelectionError,
+} from "../src/modes/registry.js";
 
-  console.log(`Making request to: ${url}\n`);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageRoot = join(__dirname, "..");
+config({ path: join(packageRoot, ".env") });
 
-  const response = await fetchWithPayment(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ flightId: "FL002", uid: "100","chain": "ARBEVM","fullCurrType": "USDC_ARBEVM" }),
-  });
-  const body = await response.json();
-  console.log("Response body:", body);
+const baseURL = process.env.RESOURCE_SERVER_URL || "https://webws.gate.io:443";
+const endpointPath = process.env.ENDPOINT_PATH || "/flight/order";
 
-  if (response.ok) {
-    const paymentResponse = getPaymentSettleResponse((name) =>
-      response.headers.get(name),
-    );
-    console.log("\nPayment response:", paymentResponse);
-  } else {
-    console.log(`\nNo payment settled (response status: ${response.status})`);
+const REQUEST = {
+  url: `${baseURL}${endpointPath}`,
+  method: "POST" as const,
+  body: '{"flightId":"FL002","uid":"100"}',
+};
+
+function buildRequestInit(method: string, body?: string): RequestInit {
+  if (method === "GET") {
+    return { method: "GET" };
   }
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
+    if (body?.trim()) {
+      JSON.parse(body);
+    }
+    return {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body?.trim() ? body : undefined,
+    };
+  }
+  throw new Error(`不支持的 method: ${method}`);
 }
 
-main().catch(error => {
-  console.error(error?.response?.data?.error ?? error);
+async function main(): Promise<void> {
+  if (!process.env.EVM_PRIVATE_KEY?.trim()) {
+    console.error("❌ 缺少 EVM_PRIVATE_KEY 环境变量");
+    process.exit(1);
+  }
+
+  const registry = createSignModeRegistry([
+    new LocalPrivateKeyMode(),
+  ]);
+
+  let payFetch: typeof fetch;
+  try {
+    const { mode } = await registry.selectMode("local_private_key");
+    payFetch = await registry.getOrCreatePayFetch(mode, {
+      walletLoginProvider: "gate",
+    });
+  } catch (error) {
+    console.error("选择/初始化 local_private_key 失败:", formatSignModeSelectionError(error));
+    process.exit(1);
+  }
+
+  const init = buildRequestInit(REQUEST.method, REQUEST.body);
+  console.log(`请求: ${REQUEST.url} ${REQUEST.method}`);
+  console.log(`请求体: ${REQUEST.body}`);
+
+  const response = await payFetch(REQUEST.url, init);
+  const responseText = await response.text();
+
+  let text: string;
+  try {
+    const json = JSON.parse(responseText) as { data?: unknown };
+    text = json.data != null ? JSON.stringify(json.data, null, 2) : JSON.stringify(json, null, 2);
+  } catch {
+    text = responseText;
+  }
+
+  console.log("--- 响应 ---\n", text);
+  
+  if (!response.ok && response.status !== 402) {
+    console.error("HTTP", response.status);
+    process.exit(1);
+  }
+  
+  console.log(`\n✓ 完成：已通过 local_private_key 访问 ${REQUEST.url}。`);
+}
+
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

@@ -11,10 +11,10 @@
 
 import { config } from "dotenv";
 import { getAddress } from "viem";
-import { getMcpClient } from "../src/x402-standalone/wallet/wallet-mcp-clients.js";
-import { loadAuth } from "../src/x402-standalone/wallet/auth-token-store.js";
-import { createSignerFromMcpWallet } from "../src/x402-standalone/signer.js";
-import { createNonce } from "../src/x402-standalone/utils.js";
+import { getMcpClient } from "../src/wallets/wallet-mcp-clients.js";
+import { loadAuth } from "../src/wallets/auth-token-store.js";
+import { createQuickWalletSigner } from "../src/modes/signers.js";
+import { createNonce } from "../src/x402/utils.js";
 
 config();
 
@@ -56,7 +56,7 @@ async function main() {
   mcp.setMcpToken(savedAuth.mcp_token);
 
   try {
-    const signer = await createSignerFromMcpWallet(mcp);
+        const signer = await createQuickWalletSigner(mcp);
     if (!signer.address || !signer.address.startsWith("0x")) {
       console.error("\n✗ signer.address 无效:", signer.address);
       process.exit(1);

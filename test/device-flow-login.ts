@@ -12,8 +12,8 @@
  */
 
 import { config } from "dotenv";
-import { getMcpClient } from "../src/x402-standalone/wallet/wallet-mcp-clients.js";
-import { loginWithDeviceFlow } from "../src/x402-standalone/wallet/device-flow-login.js";
+import { getMcpClient } from "../src/wallets/wallet-mcp-clients.js";
+import { loginWithDeviceFlow } from "../src/wallets/device-flow-login.js";
 
 config();
 

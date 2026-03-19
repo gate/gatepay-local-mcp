@@ -4,13 +4,13 @@ import assert from "node:assert/strict";
 import {
   SignModeSelectionError,
   createSignModeRegistry,
-} from "../../src/sign-modes/registry.js";
+} from "../../src/modes/registry.js";
 import type {
   ResolvedSignerSession,
   SignModeAvailability,
   SignModeDefinition,
-} from "../../src/sign-modes/types.js";
-import type { ClientEvmSigner } from "../../src/x402-standalone/types.js";
+} from "../../src/modes/types.js";
+import type { ClientEvmSigner } from "../../src/x402/types.js";
 
 function createStubSigner(): ClientEvmSigner {
   return {

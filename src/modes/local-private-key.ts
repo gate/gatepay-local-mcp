@@ -1,4 +1,4 @@
-import { createSignerFromPrivateKey } from "../x402-standalone/signer.js";
+import { createLocalPrivateKeySigner } from "./signers.js";
 import type {
   ResolvedSignerSession,
   SignModeAvailability,
@@ -33,7 +33,7 @@ export class LocalPrivateKeyMode implements SignModeDefinition {
 
     const privateKey = (raw.startsWith("0x") ? raw : `0x${raw}`) as `0x${string}`;
     return {
-      signer: createSignerFromPrivateKey(privateKey),
+      signer: createLocalPrivateKeySigner(privateKey),
     };
   }
 

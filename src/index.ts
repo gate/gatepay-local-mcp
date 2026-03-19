@@ -13,14 +13,14 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { normalizeX402RequestInput } from "./sign-modes/input-normalizer.js";
-import { LocalPrivateKeyMode } from "./sign-modes/local-private-key.js";
-import { PluginWalletMode } from "./sign-modes/plugin-wallet.js";
+import { normalizeX402RequestInput } from "./modes/input-normalizer.js";
+import { LocalPrivateKeyMode } from "./modes/local-private-key.js";
+import { PluginWalletMode } from "./modes/plugin-wallet.js";
 import {
   createSignModeRegistry,
   formatSignModeSelectionError,
-} from "./sign-modes/registry.js";
-import { QuickWalletMode } from "./sign-modes/quick-wallet.js";
+} from "./modes/registry.js";
+import { QuickWalletMode } from "./modes/quick-wallet.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -96,12 +96,13 @@ function buildRequestInit(method: string, body?: string): RequestInit {
 }
 
 async function main(): Promise<void> {
-  const mcpWalletUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
-  const mcpApiKey = process.env.MCP_WALLET_API_KEY;
+  const quickWalletMcpUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const quickWalletApiKey = process.env.MCP_WALLET_API_KEY;
+  const pluginWalletServerUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? "https://walletmcp-test.gateweb3.cc/mcp"; 
   const signModeRegistry = createSignModeRegistry([
     new LocalPrivateKeyMode(),
-    new QuickWalletMode({ mcpWalletUrl, mcpApiKey }),
-    new PluginWalletMode(),
+    new QuickWalletMode({ mcpWalletUrl: quickWalletMcpUrl, mcpApiKey: quickWalletApiKey }),
+    new PluginWalletMode({ serverUrl: pluginWalletServerUrl }),
   ]);
 
   const server = new Server({

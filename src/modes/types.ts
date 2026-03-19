@@ -1,4 +1,4 @@
-import type { ClientEvmSigner } from "../x402-standalone/types.js";
+import type { ClientEvmSigner } from "../x402/types.js";
 
 export type SignModeId = "local_private_key" | "quick_wallet" | "plugin_wallet";
 

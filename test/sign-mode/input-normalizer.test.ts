@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeX402RequestInput } from "../../src/sign-modes/input-normalizer.js";
+import { normalizeX402RequestInput } from "../../src/modes/input-normalizer.js";
 
 test("uses sign_mode when provided", () => {
   const normalized = normalizeX402RequestInput({

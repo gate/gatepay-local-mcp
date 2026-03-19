@@ -1,7 +1,7 @@
-import { createSignerFromMcpWallet } from "../x402-standalone/signer.js";
-import { loadAuth } from "../x402-standalone/wallet/auth-token-store.js";
-import { loginWithDeviceFlow } from "../x402-standalone/wallet/device-flow-login.js";
-import { getMcpClient } from "../x402-standalone/wallet/wallet-mcp-clients.js";
+import { createQuickWalletSigner } from "./signers.js";
+import { loadAuth } from "../wallets/auth-token-store.js";
+import { loginWithDeviceFlow } from "../wallets/device-flow-login.js";
+import { getMcpClient } from "../wallets/wallet-mcp-clients.js";
 import type {
   ResolveSignerContext,
   ResolvedSignerSession,
@@ -69,7 +69,7 @@ export class QuickWalletMode implements SignModeDefinition {
     }
 
     return {
-      signer: await createSignerFromMcpWallet(mcp),
+      signer: await createQuickWalletSigner(mcp),
     };
   }
 

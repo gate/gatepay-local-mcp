@@ -1,50 +1,98 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+/**
+ * 直接用 src 里的代码发起 x402 请求：plugin_wallet → 插件钱包 MCP → flight/order。
+ * 不经过 MCP 子进程，方便断点调试。
+ *
+ * 唤醒插件钱包：在 Node 下调用时，MCP 无法主动唤起浏览器扩展弹窗。
+ * 请先在浏览器中打开 Gate Wallet 扩展并完成连接（或打开与 PLUGIN_WALLET_URL 同会话的页面），
+ * 再运行本脚本。
+ *
+ * 可选环境变量：
+ * - PLUGIN_WALLET_URL：插件钱包 MCP 地址（见下方默认值）
+ * - 可在项目根目录 .env 中配置
+ */
+import { config } from "dotenv";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const MCP_URL = "https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73";
+import { PluginWalletMode } from "../src/modes/plugin-wallet.js";
+import {
+  createSignModeRegistry,
+  formatSignModeSelectionError,
+} from "../src/modes/registry.js";
 
-async function main() {
-  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));
-  const client = new Client(
-    { name: "call-sign-message-client", version: "1.0.0" },
-    {}
-  );
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageRoot = join(__dirname, "..");
+config({ path: join(packageRoot, ".env") });
 
-  await client.connect(transport);
+const DEFAULT_PLUGIN_WALLET_URL =
+  "https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73";
 
-  const connectResult = await client.callTool({
-    name: "connect_wallet",
-    arguments: {},
-  });
+const REQUEST = {
+  url: "https://webws.gate.io:443/flight/order",
+  method: "POST" as const,
+  body: '{"flightId":"FL002","uid":"100"}',
+};
 
-  const connectText =
-    Array.isArray(connectResult.content) &&
-    connectResult.content[0] &&
-    "text" in connectResult.content[0]
-      ? connectResult.content[0].text
-      : "";
-
-  console.log("connectText", connectText);
-  const connectData = JSON.parse(connectText);
-  const address = connectData.accounts?.[0];
-
-
-  
-
-  const signResult = await client.callTool({
-    name: "sign_message",
-    arguments: {
-      message: "hello gatepay",
-      address,
-    },
-  });
-
-  console.log("签名结果:", JSON.stringify(signResult, null, 2));
-
-  await transport.close();
+function buildRequestInit(method: string, body?: string): RequestInit {
+  if (method === "GET") {
+    return { method: "GET" };
+  }
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
+    if (body?.trim()) {
+      JSON.parse(body);
+    }
+    return {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body?.trim() ? body : undefined,
+    };
+  }
+  throw new Error(`不支持的 method: ${method}`);
 }
 
-main().catch((err) => {
-  console.error("Error:", err);
+async function main(): Promise<void> {
+  const pluginWalletUrl =
+    process.env.PLUGIN_WALLET_URL?.trim() || DEFAULT_PLUGIN_WALLET_URL;
+
+  const registry = createSignModeRegistry([
+    new PluginWalletMode({ serverUrl: pluginWalletUrl }),
+  ]);
+
+  let payFetch: typeof fetch;
+  try {
+    const { mode } = await registry.selectMode("plugin_wallet");
+    payFetch = await registry.getOrCreatePayFetch(mode, {
+      walletLoginProvider: "gate",
+    });
+  } catch (error) {
+    console.error("选择/初始化 plugin_wallet 失败:", formatSignModeSelectionError(error));
+    process.exit(1);
+  }
+
+  const init = buildRequestInit(REQUEST.method, REQUEST.body);
+  console.error("请求:", REQUEST.url, REQUEST.method, REQUEST.body);
+
+  const response = await payFetch(REQUEST.url, init);
+  const responseText = await response.text();
+
+  let text: string;
+  try {
+    const json = JSON.parse(responseText) as { data?: unknown };
+    text = json.data != null ? JSON.stringify(json.data, null, 2) : JSON.stringify(json, null, 2);
+  } catch {
+    text = responseText;
+  }
+
+  console.log("--- 响应 ---\n", text);
+  if (!response.ok && response.status !== 402) {
+    console.error("HTTP", response.status);
+    process.exit(1);
+  }
+  console.error("\n✓ 完成：已通过 plugin_wallet 访问 flight/order。");
+}
+
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });
