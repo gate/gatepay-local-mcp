@@ -2,7 +2,7 @@
  * Standalone x402 utils: base64, createNonce, client lookup (no @x402/* deps).
  */
 import type { PaymentRequirements } from "./types.js";
-import { toHex } from "viem";
+import { hashTypedData, toHex } from "viem";
 
 export const Base64EncodedRegex = /^[A-Za-z0-9+/]*={0,2}$/;
 
@@ -91,3 +91,26 @@ export function normalizePaymentRequirements(accepts: PaymentRequirements[]): Pa
     return { ...a, amount: amountStr, maxTimeoutSeconds: maxTimeout };
   });
 }
+
+
+
+export interface Eip712TypeField {
+  name: string;
+  type: string;
+}
+
+export interface Eip712TypedData {
+  domain: Record<string, unknown>;
+  types: Record<string, readonly Eip712TypeField[]>;
+  primaryType: string;
+  message: Record<string, unknown>;
+}
+
+/**
+ * Build the EIP-712 digest: keccak256("\x19\x01" || domainSeparator || structHash).
+ * Useful when caller needs raw digest for signDigest-style signers.
+ */
+export function buildEip712TypedDataDigest(typedData: Eip712TypedData): `0x${string}` {
+  return hashTypedData(typedData as never);
+}
+

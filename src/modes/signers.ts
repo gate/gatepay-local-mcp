@@ -10,6 +10,7 @@ import { hexToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ClientEvmSigner } from "../x402/types.js";
 import type { PluginWalletClient } from "../wallets/plugin-wallet-client.js";
+import { buildEip712TypedDataDigest } from "../x402/utils.js";
 import type { GateMcpClient } from "../wallets/wallet-mcp-clients.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -279,19 +280,31 @@ export async function createQuickWalletSigner(
     primaryType: string;
     message: Record<string, unknown>;
   }): Promise<`0x${string}`> => {
-    const serialized = serializeTypedDataForMcp(
-        msg as unknown as Record<string, unknown>,
-    );
-    const raw_tx: string = String(serialized);
-    const result = await mcp.walletSignTransaction("EVM", { raw_tx });
+    
+    const digest = buildEip712TypedDataDigest(msg as Parameters<typeof buildEip712TypedDataDigest>[0]);
+    const digestForMcp = digest.replace(/^0x/i, "");
+    console.log("[createSignerFromMcpWallet] typedData digest:", digestForMcp);
+    const result = await mcp.walletSignMessage("EVM", digestForMcp);
+
     const data = parseMcpToolResult<Record<string, unknown>>(result);
     const sig = data && extractSignatureFromMcpResult(data);
+    let normalizedSig = sig;
+    if (sig && /^0x[0-9a-fA-F]{130}$/.test(sig)) {
+      const vHex = sig.slice(130, 132);
+      const v = Number.parseInt(vHex, 16);
+      if (v === 0 || v === 1) {
+        const normalizedV = (v + 27).toString(16).padStart(2, "0");
+        normalizedSig = `${sig.slice(0, 130)}${normalizedV}` as `0x${string}`;
+      }
+    }
+    console.log("[createSignerFromMcpWallet] sig:", normalizedSig);
+
     if (!sig) {
       throw new Error(
-          "createQuickWalletSigner: wallet.sign_transaction(raw_tx) did not return a signature",
+          "createSignerFromMcpWallet: wallet.sign_message(typedData digest) did not return a signature",
       );
     }
-    return sig;
+    return normalizedSig as `0x${string}`;
   };
 
   return {
