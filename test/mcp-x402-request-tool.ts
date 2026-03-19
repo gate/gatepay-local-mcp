@@ -11,6 +11,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { ProcessEnv } from "node:process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
@@ -34,7 +35,7 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 function createChildStdioTransport(
     command: string,
     args: string[],
-    childEnv: NodeJS.ProcessEnv,
+    childEnv: ProcessEnv,
 ): Transport {
   let child: ChildProcessWithoutNullStreams | undefined;
   const readBuffer = new ReadBuffer();
@@ -90,7 +91,7 @@ async function main(): Promise<void> {
   }
 
   const timeoutMs = Number(process.env.GATEPAY_MCP_TEST_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
-  const childEnv = { ...process.env } as NodeJS.ProcessEnv;
+  const childEnv = { ...process.env } as ProcessEnv;
   const transport = createChildStdioTransport(process.execPath, [serverEntry], childEnv);
 
   const client = new Client({

@@ -16,6 +16,7 @@
     "prepublishOnly": "npm run build",
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
+    "test:unit": "node --import tsx --test test/**/*.test.ts",
     "test:privateKey": "tsx test/privateKey.ts",
     "test:getTools": "tsx test/mcpclient.ts",
     "test:pluginWallet": "tsx test/pluginWallet.ts",

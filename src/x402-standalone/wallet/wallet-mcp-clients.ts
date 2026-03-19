@@ -100,12 +100,11 @@ export class GateMcpClient {
     const apiKey = this.config.apiKey ?? "MCP_AK_8W2N7Q";
     console.error(`[MCP] connect: url=${url.href} hasApiKey=${Boolean(apiKey)}`);
 
-    const self = this;
     const mcpFetch: typeof fetch = async (input, init) => {
       const headers = new Headers(init?.headers);
       if (apiKey) headers.set("x-api-key", apiKey);
-      if (self.mcpToken) {
-        headers.set("Authorization", `Bearer ${self.mcpToken}`);
+      if (this.mcpToken) {
+        headers.set("Authorization", `Bearer ${this.mcpToken}`);
       }
       return fetch(input, { ...init, headers });
     };

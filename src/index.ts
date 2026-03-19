@@ -1,40 +1,26 @@
 #!/usr/bin/env node
 /**
- * x402 stdio bridge — standalone, no @x402/* dependencies.
- *
- * All x402 logic is inlined under x402-standalone/ so this package
- * can be published and run via `npx -y gatepay-local-mcp` without
- * depending on unpublished @x402/core, @x402/evm, @x402/fetch.
- *
- * One MCP tool: x402_request
- *   - url: full URL (required)
- *   - method: GET | POST | PUT | PATCH (default POST)
- *   - body: JSON string for request body (POST/PUT/PATCH); omit for GET
- *
- * Env:
- *   EVM_PRIVATE_KEY — required for default x402_request (local EVM signing)
- *   MCP_WALLET_URL / MCP_WALLET_API_KEY — for auth_mode quick_wallet (custodial MCP)
- *   quick_wallet with no local token: use tool arg wallet_login_provider (google | gate) for OAuth
- *   X402_DEBUG_LOG — optional debug log file path
+ * x402 stdio bridge with pluggable sign_mode support.
  */
 import { config } from "dotenv";
-import { createWriteStream, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-  ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { X402ClientStandalone } from "./x402-standalone/client.js";
-import { ExactEvmScheme } from "./x402-standalone/exactEvmScheme.js";
-import {createSignerFromMcpWallet, createSignerFromPrivateKey} from "./x402-standalone/signer.js";
-import { wrapFetchWithPayment } from "./x402-standalone/fetch.js";
-import { loadAuth } from "./x402-standalone/wallet/auth-token-store.js";
-import { loginWithDeviceFlow } from "./x402-standalone/wallet/device-flow-login.js";
-import { GateMcpClient, getMcpClient } from "./x402-standalone/wallet/wallet-mcp-clients.js";
+import { normalizeX402RequestInput } from "./sign-modes/input-normalizer.js";
+import { LocalPrivateKeyMode } from "./sign-modes/local-private-key.js";
+import { PluginWalletMode } from "./sign-modes/plugin-wallet.js";
+import {
+  createSignModeRegistry,
+  formatSignModeSelectionError,
+} from "./sign-modes/registry.js";
+import { QuickWalletMode } from "./sign-modes/quick-wallet.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,7 +36,6 @@ function findPackageRoot(startDir: string): string {
 
 const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
-
 
 const TOOL_NAME = "x402_request";
 
@@ -68,19 +53,23 @@ const INPUT_SCHEMA = {
     },
     body: {
       type: "string",
+      description: "JSON string request body for POST/PUT/PATCH. Omit for GET.",
+    },
+    sign_mode: {
+      type: "string",
       description:
-          'JSON string request body for POST/PUT/PATCH. Omit for GET.',
+        "Optional preferred signing mode. Omit to auto-select the highest-priority ready mode.",
+      enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
     },
     auth_mode: {
       type: "string",
-      description:
-          "Optional. quick_wallet: custodial MCP wallet. Omit: sign with EVM_PRIVATE_KEY.",
+      description: "Deprecated alias for sign_mode. quick_wallet is kept for compatibility.",
       enum: ["quick_wallet"],
     },
     wallet_login_provider: {
       type: "string",
       description:
-          "When auth_mode is quick_wallet and login is required (no saved token): OAuth provider. google = Google account, gate = Gate account. User picks in chat; model passes their choice. Defaults to gate if omitted.",
+        "When quick_wallet needs login: OAuth provider. google = Google account, gate = Gate account. Defaults to gate.",
       enum: ["google", "gate"],
     },
   },
@@ -88,88 +77,38 @@ const INPUT_SCHEMA = {
 };
 
 const TOOL_DESCRIPTION =
-    "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
-    "For quick_wallet first-time login, set wallet_login_provider to google or gate according to what the user chose in chat. " +
-    "Pass full url and JSON body string as documented in the Skill.";
+  "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
+  "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode. " +
+  "auth_mode is deprecated and kept only for compatibility.";
+
+function buildRequestInit(method: string, body?: string): RequestInit {
+  if (method === "GET") {
+    return { method: "GET" };
+  }
+
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
+    if (body && body.trim()) {
+      JSON.parse(body);
+    }
+
+    return {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body && body.trim() ? body : undefined,
+    };
+  }
+
+  throw new Error(`不支持的 method: ${method}`);
+}
 
 async function main(): Promise<void> {
-
   const mcpWalletUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const mcpApiKey = process.env.MCP_WALLET_API_KEY;
-
-  /** Local private key mode: reuse same client + wrapFetch after first success */
-  let cachedLocalPayFetch: typeof fetch | undefined;
-
-  function getOrCreateLocalPayFetch(): typeof fetch {
-    if (cachedLocalPayFetch) return cachedLocalPayFetch;
-    const raw = process.env.EVM_PRIVATE_KEY?.trim();
-    if (!raw) {
-      throw new Error(
-          "EVM_PRIVATE_KEY is not set. Configure it for default signing, or use auth_mode quick_wallet for custodial MCP.",
-      );
-    }
-    const evmPrivateKey = (raw.startsWith("0x") ? raw : `0x${raw}`) as `0x${string}`;
-    const signer = createSignerFromPrivateKey(evmPrivateKey);
-    const c = new X402ClientStandalone();
-    c.register("gatelayer_testnet", new ExactEvmScheme(signer));
-    c.register("eth", new ExactEvmScheme(signer));
-    c.register("base", new ExactEvmScheme(signer));
-    c.register("Polygon", new ExactEvmScheme(signer));
-    c.register("gatelayer", new ExactEvmScheme(signer));
-    c.register("gatechain", new ExactEvmScheme(signer));
-    c.register("Arbitrum One", new ExactEvmScheme(signer));
-    cachedLocalPayFetch = wrapFetchWithPayment(fetch, c);
-    return cachedLocalPayFetch;
-  }
-
-  /** quick_wallet: reuse after first success; concurrent callers share one init promise; failures are not cached so retry works */
-  let cachedQuickWalletPayFetch: typeof fetch | undefined;
-  let quickWalletInitPromise: Promise<typeof fetch> | undefined;
-
-  async function getOrCreateQuickWalletPayFetch(
-      walletLoginProvider: "google" | "gate",
-  ): Promise<typeof fetch> {
-    if (cachedQuickWalletPayFetch) return cachedQuickWalletPayFetch;
-    while (quickWalletInitPromise) {
-      await quickWalletInitPromise;
-      if (cachedQuickWalletPayFetch) return cachedQuickWalletPayFetch;
-    }
-    const isGoogle = walletLoginProvider === "google";
-    const providerLabel = isGoogle ? "Google" : "Gate";
-    quickWalletInitPromise = (async () => {
-      const mcp = await getMcpClient({ serverUrl: mcpWalletUrl, apiKey: mcpApiKey });
-      const savedAuth = loadAuth();
-      if (savedAuth?.mcp_token) {
-        mcp.setMcpToken(savedAuth.mcp_token);
-      } else {
-        console.error(
-            `[x402_request] quick_wallet: no saved token, starting ${providerLabel} device-flow login…`,
-        );
-        const loginOk = await loginWithDeviceFlow(mcp, mcpWalletUrl, isGoogle, providerLabel, {
-          saveToken: true,
-          reportAddresses: false,
-        });
-        if (!loginOk) {
-          throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
-        }
-      }
-      const signer = await createSignerFromMcpWallet(mcp);
-      const c = new X402ClientStandalone();
-      c.register("gatelayer_testnet", new ExactEvmScheme(signer));
-      c.register("eth", new ExactEvmScheme(signer));
-      c.register("base", new ExactEvmScheme(signer));
-      c.register("Polygon", new ExactEvmScheme(signer));
-      c.register("gatelayer", new ExactEvmScheme(signer));
-      c.register("gatechain", new ExactEvmScheme(signer));
-      c.register("Arbitrum One", new ExactEvmScheme(signer));
-      const wrapped = wrapFetchWithPayment(fetch, c);
-      cachedQuickWalletPayFetch = wrapped;
-      return wrapped;
-    })().finally(() => {
-      quickWalletInitPromise = undefined;
-    });
-    return quickWalletInitPromise;
-  }
+  const signModeRegistry = createSignModeRegistry([
+    new LocalPrivateKeyMode(),
+    new QuickWalletMode({ mcpWalletUrl, mcpApiKey }),
+    new PluginWalletMode(),
+  ]);
 
   const server = new Server({
     name: "x402 Paid Request Bridge (standalone)",
@@ -196,74 +135,48 @@ async function main(): Promise<void> {
       };
     }
 
-    const params = (args ?? {}) as Record<string, unknown>;
-    const url = String(params.url ?? "").trim();
-    if (!url || !url.startsWith("http")) {
+    const normalized = normalizeX402RequestInput((args ?? {}) as Record<string, unknown>);
+    if (!normalized.url || !normalized.url.startsWith("http")) {
       return {
         content: [{ type: "text" as const, text: "缺少或无效参数 url（需完整 http/https URL）。" }],
         isError: true,
       };
     }
 
-    const method = String(params.method ?? "POST").trim().toUpperCase() || "POST";
-    const bodyStr = params.body != null ? String(params.body) : "";
-    const authMode =
-        params.auth_mode != null ? String(params.auth_mode).trim() : "";
-    const walletLoginRaw =
-        params.wallet_login_provider != null
-            ? String(params.wallet_login_provider).trim().toLowerCase()
-            : "";
-    const walletLoginProvider: "google" | "gate" =
-        walletLoginRaw === "google" ? "google" : "gate";
-
     let payFetch: typeof fetch;
     try {
-      payFetch =
-          authMode === "quick_wallet"
-              ? await getOrCreateQuickWalletPayFetch(walletLoginProvider)
-              : getOrCreateLocalPayFetch();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const selectedMode = await signModeRegistry.selectMode(normalized.signMode);
+      payFetch = await signModeRegistry.getOrCreatePayFetch(selectedMode.mode, {
+        walletLoginProvider: normalized.walletLoginProvider,
+      });
+    } catch (error) {
       return {
-        content: [{ type: "text" as const, text: msg }],
+        content: [{ type: "text" as const, text: formatSignModeSelectionError(error) }],
         isError: true,
       };
     }
 
     try {
       let init: RequestInit;
-      if (method === "GET") {
-        init = { method: "GET" };
-      } else if (method === "POST" || method === "PUT" || method === "PATCH") {
-        if (bodyStr && bodyStr.trim()) {
-          try {
-            JSON.parse(bodyStr);
-          } catch {
-            return {
-              content: [{ type: "text" as const, text: "body 必须是合法 JSON 字符串。" }],
-              isError: true,
-            };
-          }
-        }
-        init = {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: bodyStr && bodyStr.trim() ? bodyStr : undefined,
-        };
-      } else {
+      try {
+        init = buildRequestInit(normalized.method, normalized.body);
+      } catch (error) {
         return {
-          content: [{ type: "text" as const, text: `不支持的 method: ${method}` }],
+          content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
           isError: true,
         };
       }
 
-      const response = await payFetch(url, init);
+      const response = await payFetch(normalized.url, init);
       const responseText = await response.text();
 
       let text: string;
       try {
         const json = JSON.parse(responseText) as { data?: unknown };
-        text = json.data != null ? JSON.stringify(json.data, null, 2) : JSON.stringify(json, null, 2);
+        text =
+          json.data != null
+            ? JSON.stringify(json.data, null, 2)
+            : JSON.stringify(json, null, 2);
       } catch {
         text = responseText;
       }
