@@ -21,6 +21,7 @@ import {
   formatSignModeSelectionError,
 } from "./modes/registry.js";
 import { QuickWalletMode } from "./modes/quick-wallet.js";
+import { getMcpClientSync } from "./wallets/wallet-mcp-clients.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -38,6 +39,7 @@ const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
 
 const TOOL_NAME = "x402_request";
+const INSUFFICIENT_BALANCE_CODE = "800001001";
 
 const INPUT_SCHEMA = {
   type: "object" as const,
@@ -74,6 +76,66 @@ const INPUT_SCHEMA = {
 const TOOL_DESCRIPTION =
   "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
   "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode.";
+
+function parsePossiblyNestedJson(text: string): unknown {
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed === "string") {
+      try {
+        return JSON.parse(parsed);
+      } catch {
+        return parsed;
+      }
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function containsInsufficientBalanceSignal(message: string): boolean {
+  return message.toLowerCase().includes("insufficient balance");
+}
+
+async function buildInsufficientBalanceReply(baseMessage: string): Promise<string> {
+  const mcp = getMcpClientSync();
+  if (!mcp || !mcp.isAuthenticated()) {
+    return [
+      "支付失败：检测到余额不足。",
+      `原始信息: ${baseMessage}`,
+      "当前无法获取钱包余额（未检测到已登录的托管钱包会话）。",
+    ].join("\n");
+  }
+
+  try {
+    const tokenListResult = await mcp.walletGetTokenList();
+    const content = (tokenListResult as { content?: unknown[] }).content;
+    const first = Array.isArray(content)
+      ? (content[0] as { type?: string; text?: string } | undefined)
+      : undefined;
+    const balances =
+      first?.type === "text" && typeof first.text === "string"
+        ? parsePossiblyNestedJson(first.text) ?? first.text
+        : tokenListResult;
+
+    return JSON.stringify(
+      {
+        code: Number(INSUFFICIENT_BALANCE_CODE),
+        message: "余额不足，已返回当前钱包余额信息",
+        originalMessage: baseMessage,
+        walletBalances: balances,
+      },
+      null,
+      2,
+    );
+  } catch (error) {
+    return [
+      "支付失败：检测到余额不足。",
+      `原始信息: ${baseMessage}`,
+      `查询钱包余额失败: ${error instanceof Error ? error.message : String(error)}`,
+    ].join("\n");
+  }
+}
 
 function buildRequestInit(method: string, body?: string): RequestInit {
   if (method === "GET") {
@@ -176,9 +238,37 @@ async function main(): Promise<void> {
         text = responseText;
       }
 
+      const insufficientBalance =
+        containsInsufficientBalanceSignal(responseText) ||
+        containsInsufficientBalanceSignal(text);
+
       if (!response.ok && response.status !== 402) {
+        if (insufficientBalance) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: await buildInsufficientBalanceReply(text),
+              },
+            ],
+            isError: true,
+          };
+        }
         return {
           content: [{ type: "text" as const, text: `HTTP ${response.status}: ${text}` }],
+          isError: true,
+        };
+      }
+
+      // 上游常以 HTTP 200 + 业务 JSON（message 含 insufficient balance）表示余额不足，需同样拉取钱包余额
+      if (insufficientBalance) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: await buildInsufficientBalanceReply(text),
+            },
+          ],
           isError: true,
         };
       }
@@ -186,6 +276,17 @@ async function main(): Promise<void> {
       return { content: [{ type: "text" as const, text }], isError: false };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (containsInsufficientBalanceSignal(message)) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: await buildInsufficientBalanceReply(message),
+            },
+          ],
+          isError: true,
+        };
+      }
       const hint =
           message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
               ? " 请确认 url 可访问；402 支付需托管钱包已登录且有足够余额。"

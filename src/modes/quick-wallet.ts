@@ -14,6 +14,36 @@ export interface QuickWalletModeOptions {
   mcpApiKey?: string;
 }
 
+function parseMcpPayload(text: string): unknown {
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed === "string") {
+      try {
+        return JSON.parse(parsed);
+      } catch {
+        return parsed;
+      }
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function extractAddressPayload(result: unknown): unknown {
+  if (result == null || typeof result !== "object" || !("content" in result)) {
+    return result;
+  }
+  const content = (result as { content?: unknown[] }).content;
+  const first = Array.isArray(content)
+    ? (content[0] as { type?: string; text?: string } | undefined)
+    : undefined;
+  if (!first || first.type !== "text" || typeof first.text !== "string") {
+    return result;
+  }
+  return parseMcpPayload(first.text) ?? first.text;
+}
+
 export class QuickWalletMode implements SignModeDefinition {
   readonly id = "quick_wallet" as const;
   readonly priority = 20;
@@ -66,6 +96,16 @@ export class QuickWalletMode implements SignModeDefinition {
       if (!loginOk) {
         throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
       }
+
+      const addressResult = await mcp.walletGetAddresses();
+      const addresses = extractAddressPayload(addressResult);
+      throw new Error(
+        [
+          "quick_wallet 登录成功。",
+          `钱包地址信息：${JSON.stringify(addresses, null, 2)}`,
+          "请确认是否继续使用该接口进行支付；如果继续支付请回复yes。",
+        ].join("\n"),
+      );
     }
 
     return {
