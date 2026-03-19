@@ -105,7 +105,7 @@ export class QuickWalletMode implements SignModeDefinition {
         [
           "quick_wallet 登录成功。",
           `钱包地址信息：${JSON.stringify(addresses, null, 2)}`,
-          "请确认是否继续使用该接口进行支付；如果继续支付请回复yes。",
+          "如果你想继续用这个接口进行支付，请回复yes",
         ].join("\n"),
       );
     }
