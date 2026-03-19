@@ -5,7 +5,6 @@ export interface RawX402RequestInput {
   method?: unknown;
   body?: unknown;
   sign_mode?: unknown;
-  auth_mode?: unknown;
   wallet_login_provider?: unknown;
 }
 
@@ -27,7 +26,6 @@ export function normalizeX402RequestInput(
   input: RawX402RequestInput,
 ): NormalizedX402RequestInput {
   const signMode = normalizeOptionalString(input.sign_mode);
-  const authMode = normalizeOptionalString(input.auth_mode);
   const method = normalizeOptionalString(input.method)?.toUpperCase() ?? "POST";
   const body = normalizeOptionalString(input.body);
   const walletLoginProvider =
@@ -39,13 +37,7 @@ export function normalizeX402RequestInput(
     url: normalizeOptionalString(input.url) ?? "",
     method,
     body,
-    signMode: signMode ?? mapLegacyAuthMode(authMode),
+    signMode,
     walletLoginProvider,
   };
-}
-
-function mapLegacyAuthMode(authMode?: string): SignModeId | string | undefined {
-  if (!authMode) return undefined;
-  if (authMode === "quick_wallet") return "quick_wallet";
-  return authMode;
 }

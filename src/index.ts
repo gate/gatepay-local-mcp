@@ -61,11 +61,6 @@ const INPUT_SCHEMA = {
         "Optional preferred signing mode. Omit to auto-select the highest-priority ready mode.",
       enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
     },
-    auth_mode: {
-      type: "string",
-      description: "Deprecated alias for sign_mode. quick_wallet is kept for compatibility.",
-      enum: ["quick_wallet"],
-    },
     wallet_login_provider: {
       type: "string",
       description:
@@ -78,8 +73,7 @@ const INPUT_SCHEMA = {
 
 const TOOL_DESCRIPTION =
   "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
-  "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode. " +
-  "auth_mode is deprecated and kept only for compatibility.";
+  "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode.";
 
 function buildRequestInit(method: string, body?: string): RequestInit {
   if (method === "GET") {

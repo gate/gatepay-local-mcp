@@ -13,7 +13,7 @@
 1. When 调用方发起 `x402_request`, the x402 Request Tool shall 接受 `sign_mode` 作为签名模式选择参数。
 2. When 调用方未传入 `sign_mode`, the x402 Request Tool shall 按系统定义的优先级自动选择一个当前可用的签名模式。
 3. If 调用方传入未知的 `sign_mode`, then the x402 Request Tool shall 返回明确错误并列出支持的签名模式标识。
-4. Where 历史调用仍传入 `auth_mode`, the x402 Request Tool shall 在兼容期内将其映射为 `sign_mode` 并保持行为一致。
+4. The x402 Request Tool shall 不再接受旧字段别名，并统一要求调用方使用 `sign_mode`。
 5. The x402 Request Tool shall 在工具描述和输入 schema 中明确声明 `sign_mode` 的用途、取值和默认选择行为。
 
 ### Requirement 2: 签名前的可用性检查与模式选择

@@ -4,10 +4,10 @@
 
 本次设计将 `x402_request` 从“入口文件内硬编码两种签名分支”的结构，重构为“入口编排 + `sign_mode` 注册中心 + 各 mode 独立领域模块 + 通用 x402 支付管线”的分层架构。目标是在不改变现有 `402 -> 解析 -> 签名 -> 重试` 主流程的前提下，把模式选择、配置检查、登录补全、signer 构建与缓存管理抽离出来，使新增插件钱包或其他远程签名模式时无需继续膨胀 `src/index.ts`。
 
-该设计面向两类用户：一类是 MCP 调用方，他们需要通过统一的 `sign_mode` 参数获得稳定且可预测的签名行为；另一类是维护者，他们需要用独立目录承载不同 mode 的认证与签名逻辑，并通过清晰接口快速接入新模式。本次改造会保留对旧参数 `auth_mode` 的兼容映射，并延续 quick wallet 在缺少 token 时可触发 device flow 登录的现有能力。
+该设计面向两类用户：一类是 MCP 调用方，他们需要通过统一的 `sign_mode` 参数获得稳定且可预测的签名行为；另一类是维护者，他们需要用独立目录承载不同 mode 的认证与签名逻辑，并通过清晰接口快速接入新模式。本次改造延续 quick wallet 在缺少 token 时可触发 device flow 登录的现有能力，同时统一要求调用方使用 `sign_mode`。
 
 ### Goals
-- 统一 `x402_request` 的 `sign_mode` 调用模型，并保留 `auth_mode` 兼容层。
+- 统一 `x402_request` 的 `sign_mode` 调用模型。
 - 在请求真正发出前完成 mode 可用性检查、自动选模和显式模式校验。
 - 将本地私钥模式和 quick wallet 模式拆分为独立领域模块。
 - 复用现有 `x402-standalone` 支付主流程，避免重复实现签名与重试逻辑。
@@ -23,7 +23,7 @@
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.5 | 统一 `sign_mode` 输入与兼容 `auth_mode` | `X402RequestOrchestrator`, `InputNormalizer` | `NormalizedRequest`, `SignModeId` | 模式解析与选择流程 |
+| 1.1-1.5 | 统一 `sign_mode` 输入 | `X402RequestOrchestrator`, `InputNormalizer` | `NormalizedRequest`, `SignModeId` | 模式解析与选择流程 |
 | 2.1-2.5 | 请求前完成 mode 可用性检查与自动选模 | `SignModeRegistry`, `ModeAvailabilityProbe` | `SignModeAvailability`, `SelectionResult` | 模式解析与选择流程 |
 | 3.1-3.5 | 显式模式前置校验与模式专属提示 | `SignModeRegistry`, `QuickWalletMode`, `LocalPrivateKeyMode` | `SignModeError`, `ResolveSignerContext` | 模式解析与选择流程 |
 | 4.1-4.5 | mode 可插拔架构与清晰目录边界 | `SignModeRegistry`, `SignModeDefinition`, 各 mode 模块 | `SignModeDefinition` | 架构边界图 |
@@ -36,7 +36,7 @@
 
 当前架构中，`src/index.ts` 同时负责：
 - MCP tool schema 与请求参数解析
-- `auth_mode` 分支判断
+- `sign_mode` 分支判断
 - 环境变量与 token 检查
 - quick wallet 登录补全
 - signer 创建
@@ -94,7 +94,7 @@ sequenceDiagram
     participant Mode as SignMode
 
     Caller->>Entry: call x402_request
-    Entry->>Entry: normalize sign_mode and auth_mode
+    Entry->>Entry: normalize sign_mode
     Entry->>Registry: selectMode(requestedMode)
     Registry->>Mode: checkAvailability()
     Mode-->>Registry: availability
@@ -141,7 +141,7 @@ sequenceDiagram
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
 | `X402RequestOrchestrator` | Entry | 解析输入并编排整体调用 | 1.1-1.5, 3.1-3.5 | `SignModeRegistry` P0 | Service |
-| `InputNormalizer` | Entry | 统一处理 `sign_mode` / `auth_mode` 与默认值 | 1.1-1.5 | `NormalizedRequest` P0 | Service |
+| `InputNormalizer` | Entry | 统一处理 `sign_mode` 与默认值 | 1.1-1.5 | `NormalizedRequest` P0 | Service |
 | `SignModeRegistry` | Domain | 注册模式、选择模式、管理缓存与初始化 | 2.1-2.5, 4.1-4.5, 6.1-6.5 | 各 `SignModeDefinition` P0 | Service, State |
 | `LocalPrivateKeyMode` | Mode | 检查本地私钥并构建 signer | 2.1-2.5, 3.1-3.5, 4.1-4.5 | `createSignerFromPrivateKey` P0 | Service |
 | `QuickWalletMode` | Mode | 检查 token、补登录并构建远程 signer | 2.1-2.5, 3.1-3.5, 4.1-4.5 | `GateMcpClient`, `loadAuth`, `loginWithDeviceFlow` P0 | Service |
@@ -183,12 +183,12 @@ interface X402RequestOrchestrator {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 兼容 `auth_mode` 并产出标准化请求上下文 |
+| Intent | 产出标准化请求上下文 |
 | Requirements | 1.1, 1.4, 1.5 |
 
 **Responsibilities & Constraints**
 - 接受原始 MCP 参数并产出 `NormalizedRequest`。
-- 优先使用 `sign_mode`，仅在缺失时读取 `auth_mode` 做兼容映射。
+- 读取 `sign_mode` 并产出标准化请求上下文。
 - 保留 `wallet_login_provider` 作为 quick wallet 的上下文参数。
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
@@ -402,7 +402,7 @@ interface PayFetchFactory {
 
 **API Data Transfer**
 - `x402_request` 输入新增 `sign_mode?: string`。
-- `auth_mode?: string` 进入兼容期，规范化时映射为 `sign_mode`。
+- 仅保留 `sign_mode?: string` 作为模式选择输入。
 - `wallet_login_provider?: "google" | "gate"` 保持仅对需要登录的 mode 生效。
 
 ## Error Handling
@@ -435,7 +435,7 @@ interface PayFetchFactory {
 ## Testing Strategy
 
 ### Unit Tests
-- `InputNormalizer`：`sign_mode` 优先级、`auth_mode` 兼容映射、默认 provider 规则。
+- `InputNormalizer`：`sign_mode` 解析与默认 provider 规则。
 - `SignModeRegistry`：显式模式选择、自动选模、未知模式、无可用模式。
 - `LocalPrivateKeyMode`：有/无 `EVM_PRIVATE_KEY` 的可用性检查。
 - `QuickWalletMode`：token 存在、token 缺失但可登录、token 过期三种状态。
@@ -475,7 +475,7 @@ flowchart LR
 ```
 
 - PhaseOne: 引入 registry、mode 契约、通用 factory，并迁移本地私钥模式。
-- PhaseTwo: 迁移 quick wallet 模式，完成 `sign_mode` 输入、自动选模与 `auth_mode` 兼容层。
+- PhaseTwo: 迁移 quick wallet 模式，完成 `sign_mode` 输入与自动选模。
 - PhaseThree: 补齐测试、预留 plugin wallet stub，并在文档中主推 `sign_mode`。
 
 - Rollback triggers:

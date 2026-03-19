@@ -1,18 +1,32 @@
-# gatepay-local-mcp 
+# gatepay-local-mcp
 
-A local (stdio) MCP server that sends HTTP requests to **x402 payment-protected** endpoints. On `402 Payment Required`, it creates the payment payload, signs with your EVM key, and retries the request with the payment header. Exposes a single tool: `x402_request`.
+`gatepay-local-mcp` is a local `stdio` MCP server for calling **x402 payment-protected** HTTP endpoints. It exposes a single MCP tool, `x402_request`. When the upstream service returns `402 Payment Required`, the server parses the payment requirements, prepares the payment payload, signs it with the selected signer, and retries the request automatically.
 
 ## Features
 
-- **One tool** — `x402_request`: request any URL with optional method and JSON body; 402 is handled automatically (parse → sign → retry).
-- **No @x402/* deps** — x402 logic is implemented in-repo under `x402-standalone/` (EVM exact scheme; supports `eth`, `base`, etc.).
-- **Cursor / Claude Desktop** — add the server via `mcp.json` and set `EVM_PRIVATE_KEY` in `env`; no code changes needed.
+- One MCP tool: `x402_request`
+- Built-in x402 payment flow under `src/x402-standalone/`
+- Multiple signing modes via `sign_mode`
+- Works with Cursor, Claude Desktop, and other MCP clients
+- Supports auto-selecting the first ready signing mode
 
-## Quick Start (Cursor / Claude Desktop)
+## Signing Modes
 
-### With authentication (required for x402 payment)
+The server currently registers these signing modes:
 
-`EVM_PRIVATE_KEY` is required; the server will not start without it.
+| `sign_mode`         | Status                              | Description                                                              |
+| ------------------- | ----------------------------------- | ------------------------------------------------------------------------ |
+| `local_private_key` | Ready when `EVM_PRIVATE_KEY` is set | Signs locally with your EVM private key                                  |
+| `quick_wallet`      | Ready after login                   | Uses the remote MCP wallet and can trigger device-flow login when needed |
+| `plugin_wallet`     | Placeholder                         | Reserved for future extension, not implemented yet                       |
+
+If `sign_mode` is omitted, the server auto-selects the highest-priority ready mode.
+
+## Quick Start
+
+### Cursor / Claude Desktop with local private key
+
+This is the simplest setup if you want local signing:
 
 ```json
 {
@@ -28,9 +42,11 @@ A local (stdio) MCP server that sends HTTP requests to **x402 payment-protected*
 }
 ```
 
-Put this in your MCP config (e.g. `~/.cursor/mcp.json`), then restart Cursor or reload MCP. The AI can then call `x402_request` for x402-protected URLs.
+Put this into your MCP config such as `~/.cursor/mcp.json`, then restart the client or reload MCP.
 
-### Optional: debug logging
+### Cursor / Claude Desktop with quick wallet
+
+If you prefer remote wallet signing, you can omit `EVM_PRIVATE_KEY` and let the tool use `quick_wallet`:
 
 ```json
 {
@@ -39,76 +55,129 @@ Put this in your MCP config (e.g. `~/.cursor/mcp.json`), then restart Cursor or 
       "command": "npx",
       "args": ["-y", "gatepay-local-mcp"],
       "env": {
-        "EVM_PRIVATE_KEY": "your-evm-private-key"
+        "MCP_WALLET_API_KEY": "your-api-key",
+        "MCP_WALLET_URL": "https://api.gatemcp.ai/mcp/dex"
       }
     }
   }
 }
 ```
 
-Use `tail -f /tmp/x402-debug.log` to watch requests and errors.
+When `quick_wallet` has no saved token, the server can start a device-flow login and persist the token at `~/.gate-pay/auth.json`.
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-| -------- | -------- | ------- | ----------- |
-| `EVM_PRIVATE_KEY` | **Yes** | — | EVM wallet private key (hex, with or without `0x`) for x402 payment signing |
-| `X402_DEBUG_LOG` or `MCP_X402_DEBUG_LOG` | No | — | File path for debug log (append-only; use `tail -f` to inspect) |
+The server loads `.env` from the repository or package root at startup.
 
-## Available Tools
+### Runtime variables
 
-### x402_request
+| Variable             | Required | Default                          | Description                                                                 |
+| -------------------- | -------- | -------------------------------- | --------------------------------------------------------------------------- |
+| `EVM_PRIVATE_KEY`    | No       | —                                | Local EVM private key used by `local_private_key`; hex with or without `0x` |
+| `MCP_WALLET_API_KEY` | No       | —                                | API key used when connecting to the remote MCP wallet                       |
+| `MCP_WALLET_URL`     | No       | `https://api.gatemcp.ai/mcp/dex` | Remote MCP wallet server URL used by `quick_wallet`                         |
 
-Execute one HTTP request to an x402-protected endpoint. If the server responds with `402 Payment Required`, the tool parses the payment requirements, builds and signs the payment payload, and retries the request with the `PAYMENT-SIGNATURE` header.
+### Test and script variables
 
-**Use only for endpoints that require payment (402).** Do not use for public or non-402 endpoints.
+| Variable                      | Used By                         | Default                 | Description                                     |
+| ----------------------------- | ------------------------------- | ----------------------- | ----------------------------------------------- |
+| `RESOURCE_SERVER_URL`         | `test/privateKey.ts`            | `http://localhost:8080` | Base URL for the local private-key flow test    |
+| `ENDPOINT_PATH`               | `test/privateKey.ts`            | `/flight/order`         | Endpoint path appended to `RESOURCE_SERVER_URL` |
+| `GATEPAY_MCP_TEST_TIMEOUT_MS` | `test/mcp-x402-request-tool.ts` | `180000`                | Timeout for the MCP tool integration test       |
 
-| Argument | Type | Required | Description |
-| -------- | ---- | -------- | ----------- |
-| `url` | string | **Yes** | Full URL of the endpoint (e.g. `http://localhost:8080/flight/order`) |
-| `method` | string | No | `GET`, `POST`, `PUT`, or `PATCH`. Default: `POST`. |
-| `body` | string | No | JSON string for request body (POST/PUT/PATCH). Omit for GET. |
+## Available Tool
 
-**Examples (as passed by the client):**
+### `x402_request`
 
-- GET: `{ "url": "https://api.example.com/resource" }`
-- POST: `{ "url": "https://api.example.com/order", "method": "POST", "body": "{\"flightId\":\"FL001\",\"uid\":\"100\"}" }`
+Executes a single HTTP request to an x402-protected endpoint. If the response is `402 Payment Required`, the server completes the payment flow and retries automatically.
+
+Use this tool only for endpoints that are expected to require x402 payment.
+
+| Argument                | Type   | Required | Description                                                                     |
+| ----------------------- | ------ | -------- | ------------------------------------------------------------------------------- |
+| `url`                   | string | Yes      | Full `http` or `https` URL                                                      |
+| `method`                | string | No       | `GET`, `POST`, `PUT`, or `PATCH`; default is `POST`                             |
+| `body`                  | string | No       | JSON string request body; omit for `GET`                                        |
+| `sign_mode`             | string | No       | Preferred signing mode: `local_private_key`, `quick_wallet`, or `plugin_wallet` |
+| `wallet_login_provider` | string | No       | Login provider for `quick_wallet`: `google` or `gate`; default is `gate`        |
+
+### Tool examples
+
+GET request with automatic mode selection:
+
+```json
+{
+  "url": "https://api.example.com/resource"
+}
+```
+
+POST request with explicit local signing:
+
+```json
+{
+  "url": "https://api.example.com/order",
+  "method": "POST",
+  "body": "{\"flightId\":\"FL001\",\"uid\":\"100\"}",
+  "sign_mode": "local_private_key"
+}
+```
+
+POST request with quick wallet login through Gate:
+
+```json
+{
+  "url": "https://api.example.com/order",
+  "method": "POST",
+  "body": "{\"flightId\":\"FL001\",\"uid\":\"100\"}",
+  "sign_mode": "quick_wallet",
+  "wallet_login_provider": "gate"
+}
+```
 
 ## Development
 
 ```bash
-# Install dependencies
-pnpm install
+# install dependencies
+npm install
 
-# Build (output in dist/)
-pnpm run build
+# build TypeScript output into dist/
+npm run build
 
-# Run MCP locally (loads .env from package/repo root for EVM_PRIVATE_KEY)
-pnpm start
-# or without build step
-pnpm run dev
+# start the MCP server from source
+npm run dev
 
-# Run the fetch demo (POST to a configurable x402 endpoint)
-pnpm run fetch
+# run the built entrypoint through the package start script
+npm start
+
+# run unit tests
+npm run test:unit
+
+# run the local private key flow test
+npm run test:privateKey
+
+# run the MCP tool integration test
+npm run test:mcp-tool
 ```
 
-The fetch demo uses `RESOURCE_SERVER_URL` (default `http://localhost:4021`) and `ENDPOINT_PATH` (default `/weather`); set them in `.env` or the shell. See `test/fetch.ts` to change URL, method, or body.
+### Integration test notes
 
-**MCP tool integration test** (spawns `dist/src/index.js`; by default hits **remote MCP wallet** + flight/order):
+`npm run test:mcp-tool` starts `dist/src/index.js` and calls `x402_request` against the configured remote wallet flow. In practice you usually want:
 
 ```bash
-pnpm run build
-MCP_WALLET_API_KEY=your-key pnpm run test:mcp-tool
+npm run build
+MCP_WALLET_API_KEY=your-key npm run test:mcp-tool
 ```
 
-Requires saved `~/.gate-pay/auth.json` (or interactive device login). Optional: `GATEPAY_MCP_TEST_TIMEOUT_MS`.
+If you already logged in before, the saved token in `~/.gate-pay/auth.json` will be reused. Otherwise the quick wallet flow may require interactive device login. You can increase the timeout with `GATEPAY_MCP_TEST_TIMEOUT_MS`.
 
-## How it works
+## How It Works
 
-- On first request, the server may respond with `402` and `PAYMENT-REQUIRED` (or a JSON body with payment requirements).
-- The client parses requirements, selects a supported scheme/network (e.g. `exact` + `eth`/`base`), builds the EIP-3009–style payload, and signs with `EVM_PRIVATE_KEY`.
-- It retries the same request with `PAYMENT-SIGNATURE` (and `Access-Control-Expose-Headers` for `PAYMENT-RESPONSE`).
-- The final response (200 or error) and optional `PAYMENT-RESPONSE` header are returned to the caller.
+1. The MCP client calls `x402_request`.
+2. The server normalizes the input and selects a ready `sign_mode`.
+3. The first request is sent to the target URL.
+4. If the upstream returns `402 Payment Required`, the server parses the payment requirements.
+5. The selected signer signs the payment payload.
+6. The server retries the request with the payment header and returns the final response.
 
 ## License
 
