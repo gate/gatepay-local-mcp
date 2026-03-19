@@ -46,18 +46,14 @@ Put this into your MCP config such as `~/.cursor/mcp.json`, then restart the cli
 
 ### Cursor / Claude Desktop with quick wallet
 
-If you prefer remote wallet signing, you can omit `EVM_PRIVATE_KEY` and let the tool use `quick_wallet`:
+If you prefer remote wallet signing, you can omit `EVM_PRIVATE_KEY` and let the tool use `quick_wallet`. Note that you need to obtain API credentials from the wallet service provider.
 
 ```json
 {
   "mcpServers": {
     "gatepay-mcp": {
       "command": "npx",
-      "args": ["-y", "gatepay-local-mcp"],
-      "env": {
-        "MCP_WALLET_API_KEY": "your-api-key",
-        "MCP_WALLET_URL": "https://api.gatemcp.ai/mcp/dex"
-      }
+      "args": ["-y", "gatepay-local-mcp"]
     }
   }
 }
@@ -71,11 +67,9 @@ The server loads `.env` from the repository or package root at startup.
 
 ### Runtime variables
 
-| Variable             | Required | Default                          | Description                                                                 |
-| -------------------- | -------- | -------------------------------- | --------------------------------------------------------------------------- |
-| `EVM_PRIVATE_KEY`    | No       | —                                | Local EVM private key used by `local_private_key`; hex with or without `0x` |
-| `MCP_WALLET_API_KEY` | No       | —                                | API key used when connecting to the remote MCP wallet                       |
-| `MCP_WALLET_URL`     | No       | `https://api.gatemcp.ai/mcp/dex` | Remote MCP wallet server URL used by `quick_wallet`                         |
+| Variable          | Required | Default | Description                                                                 |
+| ----------------- | -------- | ------- | --------------------------------------------------------------------------- |
+| `EVM_PRIVATE_KEY` | No       | —       | Local EVM private key used by `local_private_key`; hex with or without `0x` |
 
 ### Test and script variables
 
@@ -161,11 +155,11 @@ npm run test:mcp-tool
 
 ### Integration test notes
 
-`npm run test:mcp-tool` starts `dist/src/index.js` and calls `x402_request` against the configured remote wallet flow. In practice you usually want:
+`npm run test:mcp-tool` starts `dist/src/index.js` and calls `x402_request` against the configured remote wallet flow. The test requires proper wallet credentials to be configured.
 
 ```bash
 npm run build
-MCP_WALLET_API_KEY=your-key npm run test:mcp-tool
+npm run test:mcp-tool
 ```
 
 If you already logged in before, the saved token in `~/.gate-pay/auth.json` will be reused. Otherwise the quick wallet flow may require interactive device login. You can increase the timeout with `GATEPAY_MCP_TEST_TIMEOUT_MS`.

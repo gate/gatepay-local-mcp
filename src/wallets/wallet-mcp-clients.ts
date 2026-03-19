@@ -16,13 +16,13 @@ export interface McpClientConfig {
 const DEFAULT_SERVER_URL = "https://api.gatemcp.ai/mcp/dex";
 
 export function getServerUrl(): string {
-  return process.env["MCP_WALLET_URL"] ?? DEFAULT_SERVER_URL;
+  return process.env["QUICK_WALLET_SERVER_URL"] ?? DEFAULT_SERVER_URL;
 }
 
 const DEFAULT_API_KEY = "MCP_AK_8W2N7Q";
 
 export function getApiKey(): string | undefined {
-  return process.env["MCP_WALLET_API_KEY"] ?? DEFAULT_API_KEY;
+  return process.env["QUICK_WALLET_API_KEY"] ?? DEFAULT_API_KEY;
 }
 
 const DEFAULT_CONFIG: McpClientConfig = {

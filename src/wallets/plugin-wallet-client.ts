@@ -19,8 +19,14 @@ let instance: BrowserWalletMcpClient | null = null;
 let instanceUrl: string | null = null;
 
 export function getPluginWalletServerUrl(): string | undefined {
-  const value = process.env.PLUGIN_WALLET_URL?.trim();
-  return value ? value : undefined;
+  const baseUrl = process.env.PLUGIN_WALLET_SERVER_URL?.trim();
+  const token = process.env.PLUGIN_WALLET_TOKEN?.trim();
+  
+  if (!baseUrl || !token) {
+    return undefined;
+  }
+  
+  return `${baseUrl}?token=${encodeURIComponent(token)}`;
 }
 
 export async function getPluginWalletClient(
@@ -28,7 +34,7 @@ export async function getPluginWalletClient(
 ): Promise<PluginWalletClient> {
   const serverUrl = config?.serverUrl?.trim() || getPluginWalletServerUrl();
   if (!serverUrl) {
-    throw new Error("PLUGIN_WALLET_URL is not set.");
+    throw new Error("PLUGIN_WALLET_TOKEN is not set. 请前往插件钱包获取 token 并配置环境变量 PLUGIN_WALLET_TOKEN。");
   }
 
   if (instance?.isConnected() && instanceUrl === serverUrl) {
@@ -85,9 +91,11 @@ class BrowserWalletMcpClient implements PluginWalletClient {
   }
 
   async signTypedData(typedDataJson: string, address: string): Promise<unknown> {
+    // 传递 authPayload = pay, 用于标识这个stdio
     return this.callTool("sign_message", {
       typedData: typedDataJson,
       address,
+      authPayload: "pay",
     });
   }
 
@@ -106,6 +114,7 @@ class BrowserWalletMcpClient implements PluginWalletClient {
     this.ensureConnected();
     console.error(`[PluginWallet] callTool in: name=${name} arguments=${JSON.stringify(args)}`);
     const result = await this.client!.callTool({ name, arguments: args });
+    console.error(`[PluginWallet] callTool out: name=${name} result=${JSON.stringify(result)}`);
     return result;
   }
 

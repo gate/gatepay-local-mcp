@@ -5,7 +5,7 @@
  * 依赖：需已登录并保存 token（~/.gate-pay/auth.json），否则先运行 npm run test:device-flow-login
  *
  * 使用方式：
- *   MCP_WALLET_URL=... MCP_WALLET_API_KEY=... npm run test:signer-mcp
+ *   QUICK_WALLET_SERVER_URL=... QUICK_WALLET_API_KEY=... npm run test:signer-mcp
  * 或配置 .env 后：npm run test:signer-mcp
  */
 
@@ -39,12 +39,12 @@ function typedDataToJsonString(data: unknown): string {
 
 async function main() {
   const baseUrl =
-    process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
-  const apiKey = process.env.MCP_WALLET_API_KEY;
+    process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const apiKey = process.env.QUICK_WALLET_API_KEY;
 
   console.log("createSignerFromMcpWallet 测试");
-  console.log("  MCP_WALLET_URL:", baseUrl);
-  console.log("  MCP_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置)");
+  console.log("  QUICK_WALLET_SERVER_URL:", baseUrl);
+  console.log("  QUICK_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置)");
 
   const mcp = await getMcpClient({ serverUrl: baseUrl, apiKey });
   const savedAuth = loadAuth();

@@ -27,14 +27,15 @@ export class PluginWalletMode implements SignModeDefinition {
     if (!serverUrl) {
       return {
         status: "not_configured",
-        summary: "plugin_wallet 未配置 PLUGIN_WALLET_URL。",
-        missing: ["PLUGIN_WALLET_URL"],
+        summary: "plugin_wallet 未配置或缺少 PLUGIN_WALLET_TOKEN。请前往插件钱包获取 token 并配置环境变量。",
+        missing: ["PLUGIN_WALLET_TOKEN"],
       };
     }
 
     try {
       const client = await this.getClient(serverUrl);
       const statusResult = await client.walletStatus();
+      console.log('statusResult', statusResult);
       const statusData = parseToolResult<Record<string, unknown>>(statusResult);
       if (isPluginWalletConnected(statusData)) {
         return {
@@ -58,12 +59,44 @@ export class PluginWalletMode implements SignModeDefinition {
     void context;
     const serverUrl = this.getServerUrl();
     if (!serverUrl) {
-      throw new Error("PLUGIN_WALLET_URL is not set.");
+      throw new Error("PLUGIN_WALLET_TOKEN is not set. 请前往插件钱包获取 token 并配置环境变量 PLUGIN_WALLET_TOKEN。");
     }
 
     const client = await this.getClient(serverUrl);
+    
+    // 优化：先检查钱包状态，避免不必要的 connect_wallet 调用
+    const statusResult = await client.walletStatus();
+    const statusData = parseToolResult<Record<string, unknown>>(statusResult);
+    
+    // 如果已经连接，直接获取地址
+    if (isPluginWalletConnected(statusData)) {
+      const address = await this.getAddressFromAccounts(client);
+      return {
+        signer: createPluginWalletSigner(client, address),
+      };
+    }
+    
+    // 未连接时才调用 connect_wallet（会触发用户授权弹窗）
     const connectResult = await client.connectWallet();
     console.log("connectResult", connectResult);
+    
+    // 检查 MCP 返回的 isError 标志
+    if (connectResult && typeof connectResult === "object" && "isError" in connectResult) {
+      const mcpResult = connectResult as { isError?: boolean; content?: unknown[] };
+      if (mcpResult.isError) {
+        const data = parseToolResult<Record<string, unknown>>(connectResult);
+        const errorMsg = data?.error;
+        if (typeof errorMsg === "string") {
+          // 用户拒绝连接
+          if (errorMsg.includes("拒绝") || errorMsg.includes("reject")) {
+            throw new Error(`无法连接浏览器钱包：${errorMsg}`);
+          }
+          throw new Error(`连接浏览器钱包失败：${errorMsg}`);
+        }
+        throw new Error("连接浏览器钱包失败：未知错误");
+      }
+    }
+    
     const address = await this.resolveAddress(client, connectResult);
 
     return {
@@ -92,6 +125,18 @@ export class PluginWalletMode implements SignModeDefinition {
     return getPluginWalletClient({ serverUrl });
   }
 
+  private async getAddressFromAccounts(client: PluginWalletClient): Promise<`0x${string}`> {
+    const accountsResult = await client.getAccounts();
+    const accountsData = parseToolResult<Record<string, unknown>>(accountsResult);
+    const address = extractEvmAddress(accountsData);
+    
+    if (address) {
+      return address;
+    }
+    
+    throw new Error("plugin_wallet 已连接但无法获取 EVM 地址。请确保浏览器钱包已解锁并选择了账户。");
+  }
+
   private async resolveAddress(
     client: PluginWalletClient,
     connectResult: unknown,
@@ -110,7 +155,7 @@ export class PluginWalletMode implements SignModeDefinition {
     }
 
     const hint = getExtensionHint(connectData) ?? getExtensionHint(accountsData)
-      ?? "请先在浏览器中打开 Gate Wallet 扩展并连接，或打开与 PLUGIN_WALLET_URL 同会话的页面后再重试。";
+      ?? "请先在浏览器中打开 Gate Wallet 扩展并连接，或打开与插件钱包同会话的页面后再重试。";
     throw new Error(`plugin_wallet 未获取到 EVM 地址。${hint}`);
   }
 }
@@ -124,7 +169,7 @@ function getExtensionHint(data: Record<string, unknown> | null): string | null {
   if (!data || typeof data.error !== "string") return null;
   const msg = data.error.trim();
   if (!msg) return null;
-  return msg.includes("扩展") || msg.includes("extension") || msg.includes("连接")
+  return msg.includes("扩展") || msg.includes("extension") || msg.includes("连接") || msg.includes("拒绝") || msg.includes("reject")
     ? ` ${msg}`
     : null;
 }

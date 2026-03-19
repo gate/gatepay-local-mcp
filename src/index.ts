@@ -3,14 +3,16 @@
  * x402 stdio bridge with pluggable sign_mode support.
  */
 import { config } from "dotenv";
-import { existsSync } from "node:fs";
+import { existsSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { normalizeX402RequestInput } from "./modes/input-normalizer.js";
@@ -37,6 +39,20 @@ function findPackageRoot(startDir: string): string {
 
 const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
+
+// 调试日志辅助函数
+const DEBUG_LOG_PATH = join(homedir(), ".gate-pay", "mcp-debug.log");
+function debugLog(message: string, data?: unknown): void {
+  const timestamp = new Date().toISOString();
+  const logLine = data 
+    ? `[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n\n`
+    : `[${timestamp}] ${message}\n\n`;
+  try {
+    appendFileSync(DEBUG_LOG_PATH, logLine, "utf-8");
+  } catch (err) {
+    console.error("[DEBUG] 无法写入调试日志:", err);
+  }
+}
 
 const TOOL_NAME = "x402_request";
 const INSUFFICIENT_BALANCE_CODE = "800001001";
@@ -157,10 +173,140 @@ function buildRequestInit(method: string, body?: string): RequestInit {
   throw new Error(`不支持的 method: ${method}`);
 }
 
+function createErrorResponse(message: string): CallToolResult {
+  return {
+    content: [{ type: "text" as const, text: message }],
+    isError: true,
+  };
+}
+
+function createSuccessResponse(text: string): CallToolResult {
+  return {
+    content: [{ type: "text" as const, text }],
+    isError: false,
+  };
+}
+
+async function validateToolRequest(name: string, args: unknown): Promise<CallToolResult | null> {
+  if (name !== TOOL_NAME) {
+    return createErrorResponse(`未知工具: ${name}. 仅支持 ${TOOL_NAME}。`);
+  }
+
+  const normalized = normalizeX402RequestInput((args ?? {}) as Record<string, unknown>);
+  if (!normalized.url || !normalized.url.startsWith("http")) {
+    return createErrorResponse("缺少或无效参数 url（需完整 http/https URL）。");
+  }
+
+  return null;
+}
+
+function isCallToolResult(result: unknown): result is CallToolResult {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "content" in result &&
+    Array.isArray((result as CallToolResult).content)
+  );
+}
+
+async function selectSignModeAndGetPayFetch(
+  registry: ReturnType<typeof createSignModeRegistry>,
+  signMode: string | undefined,
+  walletLoginProvider: "google" | "gate"
+): Promise<{ payFetch: typeof fetch } | CallToolResult> {
+  try {
+    const selectedMode = await registry.selectMode(signMode);
+    const payFetch: typeof fetch = await registry.getOrCreatePayFetch(selectedMode.mode, {
+      walletLoginProvider,
+    });
+    return { payFetch };
+  } catch (error) {
+    return createErrorResponse(formatSignModeSelectionError(error));
+  }
+}
+
+function formatResponseText(responseText: string): string {
+  try {
+    const json = JSON.parse(responseText) as { data?: unknown };
+    return json.data != null
+      ? JSON.stringify(json.data, null, 2)
+      : JSON.stringify(json, null, 2);
+  } catch {
+    return responseText;
+  }
+}
+
+async function handleResponseWithBalanceCheck(
+  response: Response,
+  responseText: string
+): Promise<CallToolResult> {
+  const text = formatResponseText(responseText);
+  const insufficientBalance =
+    containsInsufficientBalanceSignal(responseText) ||
+    containsInsufficientBalanceSignal(text);
+
+  if (!response.ok && response.status !== 402) {
+    if (insufficientBalance) {
+      return createErrorResponse(await buildInsufficientBalanceReply(text));
+    }
+    return createErrorResponse(`HTTP ${response.status}: ${text}`);
+  }
+
+  if (insufficientBalance) {
+    return createErrorResponse(await buildInsufficientBalanceReply(text));
+  }
+
+  return createSuccessResponse(text);
+}
+
+async function executeX402Request(
+  payFetch: typeof fetch,
+  normalized: ReturnType<typeof normalizeX402RequestInput>
+): Promise<CallToolResult> {
+  try {
+    const init = buildRequestInit(normalized.method, normalized.body);
+    const response = await payFetch(normalized.url, init);
+    const responseText = await response.text();
+    return await handleResponseWithBalanceCheck(response, responseText);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("不支持的 method")) {
+      return createErrorResponse(error.message);
+    }
+    throw error;
+  }
+}
+
+async function handleRequestError(err: unknown): Promise<CallToolResult> {
+  const message = err instanceof Error ? err.message : String(err);
+  if (containsInsufficientBalanceSignal(message)) {
+    return createErrorResponse(await buildInsufficientBalanceReply(message));
+  }
+  const hint =
+    message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
+      ? " 请确认 url 可访问；402 支付需托管钱包已登录且有足够余额。"
+      : "";
+  return createErrorResponse(`请求失败: ${message}.${hint}`);
+}
+
 async function main(): Promise<void> {
-  const quickWalletMcpUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
-  const quickWalletApiKey = process.env.MCP_WALLET_API_KEY;
-  const pluginWalletServerUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? "https://walletmcp-test.gateweb3.cc/mcp"; 
+  debugLog("=== MCP Server 启动 ===");
+  
+  const quickWalletMcpUrl = process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const quickWalletApiKey = process.env.QUICK_WALLET_API_KEY;
+  
+  const pluginWalletBaseUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? "https://walletmcp-test.gateweb3.cc/mcp";
+  const pluginWalletToken = process.env.PLUGIN_WALLET_TOKEN;
+  const pluginWalletServerUrl = pluginWalletToken 
+    ? `${pluginWalletBaseUrl}?token=${encodeURIComponent(pluginWalletToken)}`
+    : undefined;
+
+  debugLog("环境变量配置", {
+    quickWalletMcpUrl,
+    hasQuickWalletApiKey: quickWalletApiKey,
+    pluginWalletServerUrl: pluginWalletServerUrl  ,
+    hasPluginWalletToken: pluginWalletToken,
+  });
+
   const signModeRegistry = createSignModeRegistry([
     new LocalPrivateKeyMode(),
     new QuickWalletMode({ mcpWalletUrl: quickWalletMcpUrl, mcpApiKey: quickWalletApiKey }),
@@ -185,116 +331,39 @@ async function main(): Promise<void> {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    if (name !== TOOL_NAME) {
-      return {
-        content: [{ type: "text" as const, text: `未知工具: ${name}. 仅支持 ${TOOL_NAME}。` }],
-        isError: true,
-      };
+    
+    debugLog("=== 收到工具调用 ===", { name, args });
+
+    const validationError = await validateToolRequest(name, args);
+    if (validationError) {
+      debugLog("验证失败", validationError);
+      return validationError;
     }
 
     const normalized = normalizeX402RequestInput((args ?? {}) as Record<string, unknown>);
-    if (!normalized.url || !normalized.url.startsWith("http")) {
-      return {
-        content: [{ type: "text" as const, text: "缺少或无效参数 url（需完整 http/https URL）。" }],
-        isError: true,
-      };
+    debugLog("标准化后的参数", normalized);
+
+    const signModeResult = await selectSignModeAndGetPayFetch(
+      signModeRegistry,
+      normalized.signMode,
+      normalized.walletLoginProvider
+    );
+
+    if (isCallToolResult(signModeResult)) {
+      debugLog("签名模式初始化失败", signModeResult);
+      return signModeResult;
     }
 
-    let payFetch: typeof fetch;
-    try {
-      const selectedMode = await signModeRegistry.selectMode(normalized.signMode);
-      payFetch = await signModeRegistry.getOrCreatePayFetch(selectedMode.mode, {
-        walletLoginProvider: normalized.walletLoginProvider,
-      });
-    } catch (error) {
-      return {
-        content: [{ type: "text" as const, text: formatSignModeSelectionError(error) }],
-        isError: true,
-      };
-    }
+    debugLog("签名模式初始化成功，开始执行请求");
+    const payFetch = signModeResult.payFetch;
 
     try {
-      let init: RequestInit;
-      try {
-        init = buildRequestInit(normalized.method, normalized.body);
-      } catch (error) {
-        return {
-          content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        };
-      }
-
-      const response = await payFetch(normalized.url, init);
-      const responseText = await response.text();
-
-      let text: string;
-      try {
-        const json = JSON.parse(responseText) as { data?: unknown };
-        text =
-          json.data != null
-            ? JSON.stringify(json.data, null, 2)
-            : JSON.stringify(json, null, 2);
-      } catch {
-        text = responseText;
-      }
-
-      const insufficientBalance =
-        containsInsufficientBalanceSignal(responseText) ||
-        containsInsufficientBalanceSignal(text);
-
-      if (!response.ok && response.status !== 402) {
-        if (insufficientBalance) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: await buildInsufficientBalanceReply(text),
-              },
-            ],
-            isError: true,
-          };
-        }
-        return {
-          content: [{ type: "text" as const, text: `HTTP ${response.status}: ${text}` }],
-          isError: true,
-        };
-      }
-
-      // 上游常以 HTTP 200 + 业务 JSON（message 含 insufficient balance）表示余额不足，需同样拉取钱包余额
-      if (insufficientBalance) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: await buildInsufficientBalanceReply(text),
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      return { content: [{ type: "text" as const, text }], isError: false };
+      const result = await executeX402Request(payFetch, normalized);
+      debugLog("请求执行完成", { isError: result.isError });
+      return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (containsInsufficientBalanceSignal(message)) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: await buildInsufficientBalanceReply(message),
-            },
-          ],
-          isError: true,
-        };
-      }
-      const hint =
-          message.toLowerCase().includes("fetch") || message.toLowerCase().includes("econnrefused")
-              ? " 请确认 url 可访问；402 支付需托管钱包已登录且有足够余额。"
-              : "";
-      return {
-        content: [{ type: "text" as const, text: `请求失败: ${message}.${hint}` }],
-        isError: true,
-      };
+      debugLog("请求执行异常", { error: err instanceof Error ? err.message : String(err) });
+      return await handleRequestError(err);
     }
   });
 

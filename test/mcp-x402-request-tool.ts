@@ -2,9 +2,9 @@
  * 通过 MCP stdio 子进程调用 dist/src/index.js，模拟对 x402_request 的调用：
  * quick_wallet → 远程 MCP 钱包 → flight/order。
  *
- * 需 MCP_WALLET_API_KEY；建议已有 ~/.gate-pay/auth.json（否则设备码登录在非交互环境易超时）。
+ * 需 QUICK_WALLET_API_KEY；建议已有 ~/.gate-pay/auth.json（否则设备码登录在非交互环境易超时）。
  *
- *   pnpm run build && MCP_WALLET_API_KEY=xxx pnpm run test:mcp-tool
+ *   pnpm run build && QUICK_WALLET_API_KEY=xxx pnpm run test:mcp-tool
  *
  * 可选：GATEPAY_MCP_TEST_TIMEOUT_MS（默认 180000）
  */
@@ -84,8 +84,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (!process.env.MCP_WALLET_API_KEY?.trim()) {
-    console.error("请设置 MCP_WALLET_API_KEY（远程 MCP 钱包服务）。");
+  if (!process.env.QUICK_WALLET_API_KEY?.trim()) {
+    console.error("请设置 QUICK_WALLET_API_KEY（远程 MCP 钱包服务）。");
     process.exit(1);
   }
 

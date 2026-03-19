@@ -86,6 +86,23 @@ function extractSignatureFromTxHex(hexNo0x: string): `0x${string}` | null {
  */
 function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${string}` | null {
   const sig = data.signature ?? data.signed_signature;
+  
+  // 检查 signature 是否为错误对象（例如用户取消签名）
+  if (sig && typeof sig === "object" && !Array.isArray(sig)) {
+    const errorObj = sig as Record<string, unknown>;
+    if (errorObj.code !== undefined || errorObj.message !== undefined) {
+      // 这是一个错误对象，不是有效签名
+      // 将错误信息传递到上层处理
+      const code = errorObj.code;
+      const message = errorObj.message;
+      throw new Error(
+        code === 4001
+          ? `用户取消了签名请求`
+          : `签名失败：${message ?? "未知错误"} (code: ${code})`
+      );
+    }
+  }
+  
   if (typeof sig === "string" && sig.length > 0) {
     const hex = sig.replace(/^0x/i, "").trim();
     if (/^[0-9a-fA-F]+$/.test(hex) && hex.length === 130) {
@@ -176,10 +193,12 @@ export function createPluginWalletSigner(
   const signDigest = async (digest: `0x${string}`): Promise<`0x${string}`> => {
     const result = await client.signMessage(digest, address);
     const data = parseMcpToolResult<Record<string, unknown>>(result);
+    
+    // extractSignatureFromMcpResult 会在检测到错误对象时抛出友好的错误信息
     const sig = data && extractSignatureFromMcpResult(data);
     if (!sig) {
       throw new Error(
-          "createPluginWalletSigner: sign_message(digest) did not return a signature",
+          "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
       );
     }
     return sig;
@@ -210,10 +229,12 @@ export function createPluginWalletSigner(
     });
     const result = await client.signTypedData(typedDataJson, address);
     const data = parseMcpToolResult<Record<string, unknown>>(result);
+    
+    // extractSignatureFromMcpResult 会在检测到错误对象时抛出友好的错误信息
     const sig = data && extractSignatureFromMcpResult(data);
     if (!sig) {
       throw new Error(
-          "createPluginWalletSigner: signTypedData did not return a signature",
+          "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
       );
     }
     return sig;

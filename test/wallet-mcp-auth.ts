@@ -2,8 +2,8 @@
  * 测试 wallet-mcp-clients 能否调通远程 MCP Server 的 auth.google_login_start
  *
  * 使用方式：
- *   MCP_WALLET_URL=https://api.gatemcp.ai/mcp/dex MCP_WALLET_API_KEY=你的key npm run test:wallet-mcp
- * 或先配置 .env 中的 MCP_WALLET_URL、MCP_WALLET_API_KEY 后：
+ *   QUICK_WALLET_SERVER_URL=https://api.gatemcp.ai/mcp/dex QUICK_WALLET_API_KEY=你的key npm run test:wallet-mcp
+ * 或先配置 .env 中的 QUICK_WALLET_SERVER_URL、QUICK_WALLET_API_KEY 后：
  *   npm run test:wallet-mcp
  */
 
@@ -13,12 +13,12 @@ import { getMcpClient } from "../src/wallets/wallet-mcp-clients.js";
 config();
 
 async function main() {
-  const baseUrl = process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
-  const apiKey = process.env.MCP_WALLET_API_KEY;
+  const baseUrl = process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const apiKey = process.env.QUICK_WALLET_API_KEY;
 
   console.log("MCP Wallet 连接测试 (auth.google_login_start)");
-  console.log("  MCP_WALLET_URL:", baseUrl);
-  console.log("  MCP_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置，将使用默认)");
+  console.log("  QUICK_WALLET_SERVER_URL:", baseUrl);
+  console.log("  QUICK_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置，将使用默认)");
   console.log("");
 
   const client = await getMcpClient({ serverUrl: baseUrl, apiKey });

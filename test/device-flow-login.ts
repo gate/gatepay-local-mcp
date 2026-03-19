@@ -4,7 +4,7 @@
  * 交互式测试：会打开浏览器，需在限定时间内完成 Gate/Google 授权，成功后校验 mcp_token 已写入 client。
  *
  * 使用方式：
- *   MCP_WALLET_URL=https://api.gatemcp.ai/mcp/dex MCP_WALLET_API_KEY=你的key npm run test:device-flow-login
+ *   QUICK_WALLET_SERVER_URL=https://api.gatemcp.ai/mcp/dex QUICK_WALLET_API_KEY=你的key npm run test:device-flow-login
  * 或配置 .env 后：npm run test:device-flow-login
  *
  * 可选环境变量：
@@ -19,15 +19,15 @@ config();
 
 async function main() {
   const baseUrl =
-    process.env.MCP_WALLET_URL ?? "https://api.gatemcp.ai/mcp/dex";
-  const apiKey = process.env.MCP_WALLET_API_KEY;
+    process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const apiKey = process.env.QUICK_WALLET_API_KEY;
   const providerEnv = (process.env.DEVICE_FLOW_PROVIDER ?? "gate").toLowerCase();
   const isGoogle = providerEnv === "google";
   const provider = isGoogle ? "Google" : "Gate";
 
   console.log("Device Flow 登录测试（授权后获取 token）");
-  console.log("  MCP_WALLET_URL:", baseUrl);
-  console.log("  MCP_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置)");
+  console.log("  QUICK_WALLET_SERVER_URL:", baseUrl);
+  console.log("  QUICK_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置)");
   console.log("  Provider:", provider);
   console.log("  请在浏览器中完成授权，否则将超时。\n");
 
