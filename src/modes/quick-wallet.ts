@@ -1,5 +1,4 @@
 import { createQuickWalletSigner } from "./signers.js";
-import { loadAuth } from "../wallets/auth-token-store.js";
 import { loginWithDeviceFlow } from "../wallets/device-flow-login.js";
 import { getMcpClient } from "../wallets/wallet-mcp-clients.js";
 import type {
@@ -50,18 +49,24 @@ export class QuickWalletMode implements SignModeDefinition {
 
   constructor(private readonly options: QuickWalletModeOptions) {}
 
-  checkAvailability(): SignModeAvailability {
-    const savedAuth = loadAuth();
-    if (savedAuth?.mcp_token) {
-      return {
-        status: "ready",
-        summary: "quick_wallet 已存在可用登录态。",
-      };
+  async checkAvailability(): Promise<SignModeAvailability> {
+    try {
+      const mcp = await getMcpClient({
+        serverUrl: this.options.mcpWalletUrl,
+        apiKey: this.options.mcpApiKey,
+      });
+      if (mcp.isMcpTokenUsable()) {
+        return {
+          status: "ready",
+          summary: "quick_wallet 进程内已有有效 MCP 登录态。",
+        };
+      }
+    } catch {
+      // 连接失败时不阻断显式选择 quick_wallet，交由 resolveSigner 再试
     }
-
     return {
       status: "needs_login",
-      summary: "quick_wallet 需要先完成登录。",
+      summary: "quick_wallet 需设备流登录（无有效进程内 token 或已过期）。",
       missing: ["mcp_token"],
     };
   }
@@ -72,14 +77,11 @@ export class QuickWalletMode implements SignModeDefinition {
       apiKey: this.options.mcpApiKey,
     });
 
-    const savedAuth = loadAuth();
-    if (savedAuth?.mcp_token) {
-      mcp.setMcpToken(savedAuth.mcp_token);
-    } else {
+    if (!mcp.isMcpTokenUsable()) {
       const isGoogle = context.walletLoginProvider === "google";
       const providerLabel = isGoogle ? "Google" : "Gate";
       console.error(
-        `[x402_request] quick_wallet: no saved token, starting ${providerLabel} device-flow login…`,
+        `[x402_request] quick_wallet: 无有效 MCP token（缺失或已过期），开始 ${providerLabel} 设备流登录…`,
       );
 
       const loginOk = await loginWithDeviceFlow(
@@ -88,7 +90,7 @@ export class QuickWalletMode implements SignModeDefinition {
         isGoogle,
         providerLabel,
         {
-          saveToken: true,
+          saveToken: false,
           reportAddresses: false,
         },
       );

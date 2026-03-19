@@ -36,6 +36,9 @@ const DEFAULT_CONFIG: McpClientConfig = {
 
 const SENSITIVE_KEYS = new Set(["mcp_token", "access_token", "code", "message"]);
 
+/** 在到期前提前视为过期，避免临界时刻请求失败 */
+const MCP_TOKEN_EXPIRY_SKEW_MS = 60_000;
+
 function maskSensitiveArgs(args: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {
@@ -92,6 +95,8 @@ export class GateMcpClient {
   private client: Client | null = null;
   private config: McpClientConfig;
   private mcpToken: string | null = null;
+  /** 绝对时间戳（ms），到期后需重新登录；null 表示未提供过期时间（仅不按时间失效） */
+  private mcpTokenExpiresAtMs: number | null = null;
 
   constructor(config?: Partial<McpClientConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -103,6 +108,7 @@ export class GateMcpClient {
     console.error(`[MCP] connect: url=${url.href} hasApiKey=${Boolean(apiKey)}`);
 
     const mcpFetch: typeof fetch = async (input, init) => {
+      this.invalidateMcpTokenIfExpired();
       const headers = new Headers(init?.headers);
       if (apiKey) headers.set("x-api-key", apiKey);
       if (this.mcpToken) {
@@ -132,16 +138,39 @@ export class GateMcpClient {
 
   // ─── Token 管理（托管钱包认证后设置）────────────────────
 
-  setMcpToken(token: string): void {
+  /**
+   * @param expiresAtMs 绝对过期时间（毫秒时间戳）。不传或传 null 表示不按时间失效（仅内存丢失或 clear 后需重登）。
+   */
+  setMcpToken(token: string, expiresAtMs?: number | null): void {
     this.mcpToken = token;
+    this.mcpTokenExpiresAtMs =
+      expiresAtMs === undefined || expiresAtMs === null ? null : expiresAtMs;
+  }
+
+  private invalidateMcpTokenIfExpired(): void {
+    if (!this.mcpToken) return;
+    if (this.mcpTokenExpiresAtMs == null) return;
+    if (Date.now() >= this.mcpTokenExpiresAtMs - MCP_TOKEN_EXPIRY_SKEW_MS) {
+      this.clearMcpToken();
+    }
+  }
+
+  /**
+   * 当前是否持有未过期（或未配置过期）的 MCP token，供 quick_wallet 等判断是否需设备流重登。
+   */
+  isMcpTokenUsable(): boolean {
+    this.invalidateMcpTokenIfExpired();
+    return this.mcpToken !== null;
   }
 
   getMcpToken(): string | null {
+    this.invalidateMcpTokenIfExpired();
     return this.mcpToken;
   }
 
   clearMcpToken(): void {
     this.mcpToken = null;
+    this.mcpTokenExpiresAtMs = null;
   }
 
   // ─── 认证 Tools（托管钱包用）──────────────────────────
@@ -186,7 +215,7 @@ export class GateMcpClient {
     const result = await this.callTool("dex_auth_logout", {
       mcp_token: this.mcpToken,
     });
-    this.mcpToken = null;
+    this.clearMcpToken();
     return result;
   }
 
@@ -202,6 +231,7 @@ export class GateMcpClient {
    */
   async callTool(name: string, args: Record<string, unknown> = {}) {
     this.ensureConnected();
+    this.invalidateMcpTokenIfExpired();
     const finalArgs =
       this.mcpToken && !args["mcp_token"]
         ? { ...args, mcp_token: this.mcpToken }
@@ -296,6 +326,6 @@ export class GateMcpClient {
   }
 
   isAuthenticated(): boolean {
-    return this.mcpToken !== null;
+    return this.isMcpTokenUsable();
   }
 }

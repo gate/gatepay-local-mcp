@@ -76,6 +76,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** 根据 poll / login_result 计算 MCP token 绝对过期时间（ms），供进程内失效判断 */
+function computeMcpTokenExpiresAtMs(
+  login: { expires_in?: number; expired_at?: number } | undefined,
+  poll: { expires_in?: number },
+): number {
+  if (login && typeof login.expired_at === "number" && login.expired_at > 0) {
+    return login.expired_at > 1e12 ? login.expired_at : login.expired_at * 1000;
+  }
+  const sec = login?.expires_in ?? poll.expires_in;
+  if (typeof sec === "number" && sec > 0) {
+    return Date.now() + sec * 1000;
+  }
+  return Date.now() + 30 * 86_400_000;
+}
+
 // ─── 登录后上报钱包地址（可选）────────────────────────────
 
 interface WalletAddresses {
@@ -180,7 +195,7 @@ export async function loginWithDeviceFlow(
   provider: string,
   options?: DeviceFlowLoginOptions,
 ): Promise<DeviceFlowLoginResult> {
-  const { saveToken = true, reportAddresses = true } = options ?? {};
+  const { saveToken = false, reportAddresses = false } = options ?? {};
 
   console.error(`Starting ${provider} OAuth login...`);
 
@@ -274,7 +289,8 @@ export async function loginWithDeviceFlow(
         const userId = login?.user_id ?? poll.user_id;
         const expiresIn = login?.expires_in ?? poll.expires_in;
         if (token) {
-          mcp.setMcpToken(token);
+          const expiresAtMs = computeMcpTokenExpiresAtMs(login, poll);
+          mcp.setMcpToken(token, expiresAtMs);
           process.removeListener("SIGINT", onSigint);
           console.error("Login successful!");
 
