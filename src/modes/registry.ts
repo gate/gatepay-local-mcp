@@ -177,15 +177,16 @@ export function formatSignModeSelectionError(error: unknown): string {
 
   if (error.code === "no_mode_available") {
     const hints = error.availableHints?.join("；") ?? "";
-    return `当前没有可自动选择的 sign_mode。请先配置可用的 token、session 或本地私钥。${hints ? ` 状态：${hints}` : ""}`;
+    return `当前没有可用的支付方式。请先配置可用的 token、session 或本地私钥后再重试。${hints ? ` 当前状态：${hints}` : ""}`;
   }
 
   if (error.code === "mode_not_ready") {
     const missing = error.missing?.join(", ");
-    return missing
-      ? `sign_mode ${error.mode} 当前不可直接使用：${error.message} 缺失项：${missing}`
-      : `sign_mode ${error.mode} 当前不可直接使用：${error.message}`;
+    const baseMsg = missing
+      ? `sign_mode ${error.mode} 当前不可用：${error.message} 缺失项：${missing}`
+      : `sign_mode ${error.mode} 当前不可用：${error.message}`;
+    return `${baseMsg}\n\n如需使用其他支付方式，请明确指定 sign_mode 参数（如 "plugin_wallet"、"quick_wallet" 或 "local_private_key"）。`;
   }
 
-  return `sign_mode ${error.mode} 初始化失败：${error.message}`;
+  return `sign_mode ${error.mode} 初始化失败：${error.message}\n\n如需使用其他支付方式，请明确指定 sign_mode 参数。`;
 }

@@ -3,10 +3,9 @@
  * x402 stdio bridge with pluggable sign_mode support.
  */
 import { config } from "dotenv";
-import { existsSync, appendFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -40,20 +39,6 @@ function findPackageRoot(startDir: string): string {
 const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
 
-// 调试日志辅助函数
-const DEBUG_LOG_PATH = join(homedir(), ".gate-pay", "mcp-debug.log");
-function debugLog(message: string, data?: unknown): void {
-  const timestamp = new Date().toISOString();
-  const logLine = data 
-    ? `[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n\n`
-    : `[${timestamp}] ${message}\n\n`;
-  try {
-    appendFileSync(DEBUG_LOG_PATH, logLine, "utf-8");
-  } catch (err) {
-    console.error("[DEBUG] 无法写入调试日志:", err);
-  }
-}
-
 const TOOL_NAME = "x402_request";
 const INSUFFICIENT_BALANCE_CODE = "800001001";
 
@@ -76,7 +61,8 @@ const INPUT_SCHEMA = {
     sign_mode: {
       type: "string",
       description:
-        "Optional preferred signing mode. Omit to auto-select the highest-priority ready mode.",
+        "Optional preferred signing mode. Omit to auto-select the highest-priority ready mode. " +
+        "If the initial payment fails, ask the user which payment method to use instead of automatically retrying.",
       enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
     },
     wallet_login_provider: {
@@ -91,7 +77,8 @@ const INPUT_SCHEMA = {
 
 const TOOL_DESCRIPTION =
   "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
-  "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode.";
+  "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode. " +
+  "IMPORTANT: If a payment fails, do NOT automatically retry with a different sign_mode. Instead, ask the user which payment method they would like to try.";
 
 function parsePossiblyNestedJson(text: string): unknown {
   try {
@@ -289,8 +276,6 @@ async function handleRequestError(err: unknown): Promise<CallToolResult> {
 }
 
 async function main(): Promise<void> {
-  debugLog("=== MCP Server 启动 ===");
-  
   const quickWalletMcpUrl = process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const quickWalletApiKey = process.env.QUICK_WALLET_API_KEY;
   
@@ -299,13 +284,6 @@ async function main(): Promise<void> {
   const pluginWalletServerUrl = pluginWalletToken 
     ? `${pluginWalletBaseUrl}?token=${encodeURIComponent(pluginWalletToken)}`
     : undefined;
-
-  debugLog("环境变量配置", {
-    quickWalletMcpUrl,
-    hasQuickWalletApiKey: quickWalletApiKey,
-    pluginWalletServerUrl: pluginWalletServerUrl  ,
-    hasPluginWalletToken: pluginWalletToken,
-  });
 
   const signModeRegistry = createSignModeRegistry([
     new LocalPrivateKeyMode(),
@@ -331,17 +309,13 @@ async function main(): Promise<void> {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    
-    debugLog("=== 收到工具调用 ===", { name, args });
 
     const validationError = await validateToolRequest(name, args);
     if (validationError) {
-      debugLog("验证失败", validationError);
       return validationError;
     }
 
     const normalized = normalizeX402RequestInput((args ?? {}) as Record<string, unknown>);
-    debugLog("标准化后的参数", normalized);
 
     const signModeResult = await selectSignModeAndGetPayFetch(
       signModeRegistry,
@@ -350,19 +324,15 @@ async function main(): Promise<void> {
     );
 
     if (isCallToolResult(signModeResult)) {
-      debugLog("签名模式初始化失败", signModeResult);
       return signModeResult;
     }
 
-    debugLog("签名模式初始化成功，开始执行请求");
     const payFetch = signModeResult.payFetch;
 
     try {
       const result = await executeX402Request(payFetch, normalized);
-      debugLog("请求执行完成", { isError: result.isError });
       return result;
     } catch (err) {
-      debugLog("请求执行异常", { error: err instanceof Error ? err.message : String(err) });
       return await handleRequestError(err);
     }
   });
