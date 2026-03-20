@@ -113,17 +113,6 @@ export class PluginWalletMode implements SignModeDefinition {
     return getPluginWalletClient({ serverUrl });
   }
 
-  private async getAddressFromAccounts(client: PluginWalletClient): Promise<`0x${string}`> {
-    const accountsResult = await client.getAccounts();
-    const accountsData = parseToolResult<Record<string, unknown>>(accountsResult);
-    const address = extractEvmAddress(accountsData);
-    
-    if (address) {
-      return address;
-    }
-    
-    throw new Error("plugin_wallet 已连接但无法获取 EVM 地址。请确保浏览器钱包已解锁并选择了账户。");
-  }
 
   private async resolveAddress(
     client: PluginWalletClient,

@@ -31,7 +31,7 @@ const DEFAULT_PLUGIN_WALLET_URL =
 const REQUEST = {
   url: "https://webws.gate.io:443/flight/order",
   method: "POST" as const,
-  body: '{"flightId":"FL002","uid":"100"}',
+  body: '{"flightId":"FL002","uid":"100","chain":"BASEEVM","fullCurrType":"USDC_BASEEVM"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {

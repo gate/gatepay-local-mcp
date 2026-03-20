@@ -21,13 +21,13 @@ type NobleSig = { toCompactRawBytes(): Uint8Array; recovery?: number };
 
 function toHexFromBytes(bytes: Uint8Array): string {
   return Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** 解析 MCP tool 调用的返回结果 */
 function parseMcpToolResult<T = Record<string, unknown>>(
-    result: Awaited<ReturnType<GateMcpClient["callTool"]>> | unknown,
+  result: Awaited<ReturnType<GateMcpClient["callTool"]>> | unknown,
 ): T | null {
   if (result == null || typeof result !== "object" || !("content" in result)) return null;
   const content = (result as { content?: unknown[] }).content;
@@ -86,7 +86,7 @@ function extractSignatureFromTxHex(hexNo0x: string): `0x${string}` | null {
  */
 function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${string}` | null {
   const sig = data.signature ?? data.signed_signature;
-  
+
   // 检查 signature 是否为错误对象（例如用户取消签名）
   if (sig && typeof sig === "object" && !Array.isArray(sig)) {
     const errorObj = sig as Record<string, unknown>;
@@ -97,14 +97,14 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
       const message = errorObj.message;
       throw new Error(
         code === 4001
-          ? `用户取消了签名请求`
+          ? `用户取消了签名请求:${message}`
           : `签名失败：${message ?? "未知错误"} (code: ${code})`
       );
     }
   }
-  
+
   console.log("[extractSignatureFromMcpResult] sig value:", sig);
-  
+
   if (typeof sig === "string" && sig.length > 0) {
     const hex = sig.replace(/^0x/i, "").trim();
     if (/^[0-9a-fA-F]+$/.test(hex) && hex.length === 130) {
@@ -116,18 +116,18 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
   }
 
   const raw =
-      data.signedTransaction ??
-      data.signed_transaction ??
-      data.raw_transaction ??
-      data.raw_tx;
-  
+    data.signedTransaction ??
+    data.signed_transaction ??
+    data.raw_transaction ??
+    data.raw_tx;
+
   console.log("[extractSignatureFromMcpResult] raw value:", raw);
-  
+
   if (typeof raw === "string" && raw.length > 0) {
     const hex = raw.replace(/^0x/i, "").trim();
     return extractSignatureFromTxHex(hex);
   }
-  
+
   console.log("[extractSignatureFromMcpResult] no signature found, returning null");
   return null;
 }
@@ -138,13 +138,13 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
 
 /** 使用本地私钥对 digest 进行签名 */
 async function signDigestWithPrivateKey(
-    digest: Hex,
-    privateKey: Hex,
+  digest: Hex,
+  privateKey: Hex,
 ): Promise<`0x${string}`> {
   const msg = hexToBytes(digest);
   if (msg.length !== 32) throw new Error(`Digest must be 32 bytes, got ${msg.length}`);
   const key = hexToBytes(
-      privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`,
+    privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`,
   );
   const sig = (await signAsync(msg, key)) as unknown as NobleSig;
   const compact = sig.toCompactRawBytes();
@@ -194,18 +194,18 @@ export const createSignerFromPrivateKey = createLocalPrivateKeySigner;
  * - 需要用户在浏览器中手动确认签名
  */
 export function createPluginWalletSigner(
-    client: PluginWalletClient,
-    address: `0x${string}`,
+  client: PluginWalletClient,
+  address: `0x${string}`,
 ): ClientEvmSigner {
   const signDigest = async (digest: `0x${string}`): Promise<`0x${string}`> => {
     const result = await client.signMessage(digest, address);
     const data = parseMcpToolResult<Record<string, unknown>>(result);
-    
+
     // extractSignatureFromMcpResult 会在检测到错误对象时抛出友好的错误信息
     const sig = data && extractSignatureFromMcpResult(data);
     if (!sig) {
       throw new Error(
-          "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
+        "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
       );
     }
     return sig;
@@ -217,6 +217,22 @@ export function createPluginWalletSigner(
     primaryType: string;
     message: Record<string, unknown>;
   }): Promise<`0x${string}`> => {
+    // 插件钱包需要先切换到目标链
+    // 从 domain 中提取 chainId 并转换为 hex 格式
+    if (msg.domain.chainId) {
+      const chainId = typeof msg.domain.chainId === 'number' 
+        ? `0x${msg.domain.chainId.toString(16)}`
+        : String(msg.domain.chainId);
+      
+      const switchChainResult = await client.switchChain(chainId);
+      const switchChainData = parseMcpToolResult<Record<string, unknown>>(switchChainResult);
+      if (!switchChainData) {
+        throw new Error(
+          "切换链失败：未返回有效结果。请确保浏览器钱包已连接并正常工作。",
+        );
+      }
+    }
+
     // 确保 types 中包含 EIP712Domain 定义
     const completeTypes = {
       EIP712Domain: [
@@ -227,7 +243,7 @@ export function createPluginWalletSigner(
       ],
       ...msg.types,
     };
-    
+
     const typedDataJson = serializeTypedDataForMcp({
       domain: msg.domain,
       types: completeTypes,
@@ -239,13 +255,13 @@ export function createPluginWalletSigner(
     console.log("[createPluginWalletSigner] signTypedData result:", JSON.stringify(result));
     const data = parseMcpToolResult<Record<string, unknown>>(result);
     console.log("[createPluginWalletSigner] parsed data:", JSON.stringify(data));
-    
+
     // extractSignatureFromMcpResult 会在检测到错误对象时抛出友好的错误信息
     const sig = data && extractSignatureFromMcpResult(data);
     console.log("[createPluginWalletSigner] extracted sig:", sig);
     if (!sig) {
       throw new Error(
-          "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
+        "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
       );
     }
     return sig;
@@ -276,8 +292,8 @@ export const createSignerFromPluginWallet = createPluginWalletSigner;
  * - 完全托管，用户无需管理私钥
  */
 export async function createQuickWalletSigner(
-    mcp: GateMcpClient,
-    options?: { evmAddress?: `0x${string}` },
+  mcp: GateMcpClient,
+  options?: { evmAddress?: `0x${string}` },
 ): Promise<ClientEvmSigner> {
   let address: `0x${string}`;
   if (options?.evmAddress) {
@@ -288,7 +304,7 @@ export async function createQuickWalletSigner(
     const evm = data?.addresses?.EVM;
     if (!evm || !evm.startsWith("0x")) {
       throw new Error(
-          "createQuickWalletSigner: no EVM address in wallet.get_addresses response",
+        "createQuickWalletSigner: no EVM address in wallet.get_addresses response",
       );
     }
     address = evm as `0x${string}`;
@@ -300,7 +316,7 @@ export async function createQuickWalletSigner(
     const sig = data && extractSignatureFromMcpResult(data);
     if (!sig) {
       throw new Error(
-          "createQuickWalletSigner: wallet.sign_message(digest) did not return a signature",
+        "createQuickWalletSigner: wallet.sign_message(digest) did not return a signature",
       );
     }
     return sig;
@@ -312,7 +328,7 @@ export async function createQuickWalletSigner(
     primaryType: string;
     message: Record<string, unknown>;
   }): Promise<`0x${string}`> => {
-    
+
     const digest = buildEip712TypedDataDigest(msg as Parameters<typeof buildEip712TypedDataDigest>[0]);
     const digestForMcp = digest.replace(/^0x/i, "");
     console.log("[createSignerFromMcpWallet] typedData digest:", digestForMcp);
@@ -333,7 +349,7 @@ export async function createQuickWalletSigner(
 
     if (!sig) {
       throw new Error(
-          "createSignerFromMcpWallet: wallet.sign_message(typedData digest) did not return a signature",
+        "createSignerFromMcpWallet: wallet.sign_message(typedData digest) did not return a signature",
       );
     }
     return normalizedSig as `0x${string}`;

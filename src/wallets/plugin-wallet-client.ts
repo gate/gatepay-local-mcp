@@ -9,6 +9,8 @@ export interface PluginWalletClient {
   signTypedData(typedDataJson: string, address: string): Promise<unknown>;
   /** 签原始 digest（部分钱包仅支持 signTypedData，此路径可能不被支持） */
   signMessage(message: string, address: string): Promise<unknown>;
+  /** 切换钱包当前连接的区块链网络 */
+  switchChain(chainId: string): Promise<unknown>;
 }
 
 export interface PluginWalletClientConfig {
@@ -103,6 +105,12 @@ class BrowserWalletMcpClient implements PluginWalletClient {
     return this.callTool("sign_message", {
       typedData: message,
       address,
+    });
+  }
+
+  async switchChain(chainId: string): Promise<unknown> {
+    return this.callTool("switch_chain", {
+      chainId,
     });
   }
 

@@ -28,7 +28,7 @@ const endpointPath = process.env.ENDPOINT_PATH || "/flight/order";
 const REQUEST = {
   url: `${baseURL}${endpointPath}`,
   method: "POST" as const,
-  body: '{"flightId":"FL002","uid":"100"}',
+  body: '{"flightId": "FL002","uid": "100","chain":"MATIC","fullCurrType":"USDC_MATIC"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {
