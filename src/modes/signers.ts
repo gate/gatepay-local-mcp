@@ -103,6 +103,8 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
     }
   }
   
+  console.log("[extractSignatureFromMcpResult] sig value:", sig);
+  
   if (typeof sig === "string" && sig.length > 0) {
     const hex = sig.replace(/^0x/i, "").trim();
     if (/^[0-9a-fA-F]+$/.test(hex) && hex.length === 130) {
@@ -118,10 +120,15 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
       data.signed_transaction ??
       data.raw_transaction ??
       data.raw_tx;
+  
+  console.log("[extractSignatureFromMcpResult] raw value:", raw);
+  
   if (typeof raw === "string" && raw.length > 0) {
     const hex = raw.replace(/^0x/i, "").trim();
     return extractSignatureFromTxHex(hex);
   }
+  
+  console.log("[extractSignatureFromMcpResult] no signature found, returning null");
   return null;
 }
 
@@ -227,11 +234,15 @@ export function createPluginWalletSigner(
       primaryType: msg.primaryType,
       message: msg.message,
     });
+    console.log("[createPluginWalletSigner] calling signTypedData with:", typedDataJson);
     const result = await client.signTypedData(typedDataJson, address);
+    console.log("[createPluginWalletSigner] signTypedData result:", JSON.stringify(result));
     const data = parseMcpToolResult<Record<string, unknown>>(result);
+    console.log("[createPluginWalletSigner] parsed data:", JSON.stringify(data));
     
     // extractSignatureFromMcpResult 会在检测到错误对象时抛出友好的错误信息
     const sig = data && extractSignatureFromMcpResult(data);
+    console.log("[createPluginWalletSigner] extracted sig:", sig);
     if (!sig) {
       throw new Error(
           "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",

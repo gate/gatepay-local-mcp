@@ -64,19 +64,7 @@ export class PluginWalletMode implements SignModeDefinition {
 
     const client = await this.getClient(serverUrl);
     
-    // 优化：先检查钱包状态，避免不必要的 connect_wallet 调用
-    const statusResult = await client.walletStatus();
-    const statusData = parseToolResult<Record<string, unknown>>(statusResult);
-    
-    // 如果已经连接，直接获取地址
-    if (isPluginWalletConnected(statusData)) {
-      const address = await this.getAddressFromAccounts(client);
-      return {
-        signer: createPluginWalletSigner(client, address),
-      };
-    }
-    
-    // 未连接时才调用 connect_wallet（会触发用户授权弹窗）
+    // 每次都调用 connect_wallet 来唤醒浏览器插件，确保插件处于活跃状态
     const connectResult = await client.connectWallet();
     console.log("connectResult", connectResult);
     
