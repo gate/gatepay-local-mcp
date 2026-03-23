@@ -279,7 +279,7 @@ async function main(): Promise<void> {
   const quickWalletMcpUrl = process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const quickWalletApiKey = process.env.QUICK_WALLET_API_KEY;
   
-  const pluginWalletBaseUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? "https://walletmcp-test.gateweb3.cc/mcp";
+  const pluginWalletBaseUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? "https://walletmcp.gate.com/mcp";
   const pluginWalletToken = process.env.PLUGIN_WALLET_TOKEN;
   const pluginWalletServerUrl = pluginWalletToken 
     ? `${pluginWalletBaseUrl}?token=${encodeURIComponent(pluginWalletToken)}`
