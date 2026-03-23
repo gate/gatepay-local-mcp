@@ -197,6 +197,68 @@ const QUICK_WALLET_AUTH_DESCRIPTION =
   "After a fresh login succeeds, the user may need to confirm before continuing to payment. " +
   "To switch authorization provider (e.g. Gate vs Google), restart the MCP server; the in-process wallet client keeps the current session until restart.";
 
+// New tool schemas for signature creation and payment submission
+const CREATE_SIGNATURE_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    payment_required_header: {
+      type: "string",
+      description: "Base64-encoded PAYMENT-REQUIRED header value from a 402 response",
+    },
+    response_body: {
+      type: "string",
+      description: "Optional: Response body from 402 response, used if PAYMENT-REQUIRED header is not available",
+    },
+    sign_mode: {
+      type: "string",
+      description: "Optional preferred signing mode. Omit to auto-select the highest-priority ready mode.",
+      enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
+    },
+    wallet_login_provider: {
+      type: "string",
+      description: "When quick_wallet needs login: OAuth provider (google or gate). Defaults to gate.",
+      enum: ["google", "gate"],
+    },
+  },
+  required: [],
+};
+
+const CREATE_SIGNATURE_DESCRIPTION = 
+  "Parse X402 payment requirements and create a signed payment authorization. " +
+  "Returns the complete payment payload including signature and the base64-encoded " +
+  "PAYMENT-SIGNATURE header value. Supports three signing modes: local_private_key, " +
+  "quick_wallet, and plugin_wallet. The output can be used with x402_submit_payment " +
+  "to complete the payment request.";
+
+const SUBMIT_PAYMENT_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    url: {
+      type: "string",
+      description: "Target URL for the payment request",
+    },
+    method: {
+      type: "string",
+      description: "HTTP method for the request. Default POST.",
+      enum: ["GET", "POST", "PUT", "PATCH"],
+    },
+    body: {
+      type: "string",
+      description: "JSON string request body (optional)",
+    },
+    payment_signature: {
+      type: "string",
+      description: "Base64-encoded PAYMENT-SIGNATURE header value from x402_create_signature",
+    },
+  },
+  required: ["url", "payment_signature"],
+};
+
+const SUBMIT_PAYMENT_DESCRIPTION =
+  "Submit a signed payment to complete a 402-protected request. Takes the " +
+  "payment_signature from x402_create_signature and sends it to the merchant " +
+  "along with the original request. Returns the final response from the merchant.";
+
 function parsePossiblyNestedJson(text: string): unknown {
   try {
     const parsed = JSON.parse(text);
@@ -576,6 +638,122 @@ async function handleSignPayment(
   }
 }
 
+async function handleCreateSignature(
+  args: Record<string, unknown>,
+  signModeRegistry: ReturnType<typeof createSignModeRegistry>
+): Promise<CallToolResult> {
+  try {
+    const paymentRequiredHeader = args.payment_required_header != null ? String(args.payment_required_header).trim() : "";
+    const responseBody = args.response_body != null ? String(args.response_body).trim() : "";
+    const signMode = args.sign_mode != null ? String(args.sign_mode).trim() : undefined;
+    const walletLoginProvider: "google" | "gate" = 
+      String(args.wallet_login_provider ?? "gate").toLowerCase() === "google" ? "google" : "gate";
+    
+    // 1. 解析 PAYMENT-REQUIRED
+    let paymentRequired: PaymentRequired;
+    try {
+      if (paymentRequiredHeader) {
+        paymentRequired = decodePaymentRequiredHeader(paymentRequiredHeader);
+      } else if (responseBody) {
+        const getHeader = () => null;
+        let bodyObj: PaymentRequired | undefined;
+        try {
+          bodyObj = JSON.parse(responseBody) as PaymentRequired;
+        } catch {
+          return createErrorResponse("无法解析响应体为JSON，且未提供payment_required_header参数。");
+        }
+        paymentRequired = getPaymentRequiredResponse(getHeader, bodyObj);
+      } else {
+        return createErrorResponse("缺少payment_required_header或response_body参数。");
+      }
+      
+      paymentRequired = {
+        ...paymentRequired,
+        accepts: normalizePaymentRequirements(paymentRequired.accepts),
+      };
+    } catch (error) {
+      return createErrorResponse(
+        `解析PAYMENT-REQUIRED失败: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    
+    // 2. 获取签名器并创建签名
+    const signModeResult = await selectSignModeAndGetPayFetch(
+      signModeRegistry,
+      signMode,
+      walletLoginProvider
+    );
+    
+    if (isCallToolResult(signModeResult)) {
+      return signModeResult;
+    }
+    
+    const selectedMode = await signModeRegistry.selectMode(signMode);
+    const signerSession = await selectedMode.mode.resolveSigner({ walletLoginProvider });
+    
+    const client = new X402ClientStandalone();
+    const scheme = new ExactEvmScheme(signerSession.signer);
+    
+    for (const network of SUPPORTED_NETWORKS) {
+      client.register(network, scheme);
+    }
+    
+    let paymentPayload: PaymentPayload;
+    try {
+      paymentPayload = await client.createPaymentPayload(paymentRequired);
+    } catch (error) {
+      return createErrorResponse(
+        `创建支付payload失败: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    
+    // 3. 返回完整的payload和编码后的签名
+    const encoded = encodePaymentSignatureHeader(paymentPayload);
+    
+    const result = {
+      paymentPayload,
+      encodedSignature: encoded,
+    };
+    
+    return createSuccessResponse(JSON.stringify(result, null, 2));
+  } catch (err) {
+    return await handleRequestError(err);
+  }
+}
+
+async function handleSubmitPayment(
+  args: Record<string, unknown>
+): Promise<CallToolResult> {
+  try {
+    const url = String(args.url ?? "").trim();
+    const method = String(args.method ?? "POST").trim().toUpperCase();
+    const body = args.body != null ? String(args.body) : "";
+    const paymentSignature = String(args.payment_signature ?? "").trim();
+    
+    if (!url || !url.startsWith("http")) {
+      return createErrorResponse("缺少或无效参数 url（需完整 http/https URL）。");
+    }
+    
+    if (!paymentSignature) {
+      return createErrorResponse("缺少 payment_signature 参数。");
+    }
+    
+    // 构建请求并添加签名头
+    const init = buildRequestInit(method, body);
+    const request = new Request(url, init);
+    request.headers.set("PAYMENT-SIGNATURE", paymentSignature);
+    request.headers.set("Access-Control-Expose-Headers", "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE");
+    
+    // 发送支付请求
+    const finalResponse = await fetch(request);
+    const finalResponseText = await finalResponse.text();
+    
+    return await handleResponseWithBalanceCheck(finalResponse, finalResponseText);
+  } catch (err) {
+    return await handleRequestError(err);
+  }
+}
+
 async function main(): Promise<void> {
   const quickWalletMcpUrl = process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
   const quickWalletApiKey = process.env.QUICK_WALLET_API_KEY;
@@ -617,6 +795,16 @@ async function main(): Promise<void> {
         inputSchema: SIGN_PAYMENT_INPUT_SCHEMA,
       },
       {
+        name: "x402_create_signature",
+        description: CREATE_SIGNATURE_DESCRIPTION,
+        inputSchema: CREATE_SIGNATURE_INPUT_SCHEMA,
+      },
+      {
+        name: "x402_submit_payment",
+        description: SUBMIT_PAYMENT_DESCRIPTION,
+        inputSchema: SUBMIT_PAYMENT_INPUT_SCHEMA,
+      },
+      {
         name: "x402_quick_wallet_auth",
         description: QUICK_WALLET_AUTH_DESCRIPTION,
         inputSchema: QUICK_WALLET_AUTH_INPUT_SCHEMA,
@@ -634,6 +822,14 @@ async function main(): Promise<void> {
 
     if (name === "x402_sign_payment") {
       return await handleSignPayment(args ?? {}, signModeRegistry);
+    }
+
+    if (name === "x402_create_signature") {
+      return await handleCreateSignature(args ?? {}, signModeRegistry);
+    }
+
+    if (name === "x402_submit_payment") {
+      return await handleSubmitPayment(args ?? {});
     }
 
     if (name === "x402_quick_wallet_auth") {
