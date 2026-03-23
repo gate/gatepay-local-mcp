@@ -1,6 +1,9 @@
 import { createQuickWalletSigner } from "./signers.js";
 import { loginWithDeviceFlow } from "../wallets/device-flow-login.js";
-import { getMcpClient } from "../wallets/wallet-mcp-clients.js";
+import {
+  getMcpClient,
+  type GateMcpClient,
+} from "../wallets/wallet-mcp-clients.js";
 import type {
   ResolveSignerContext,
   ResolvedSignerSession,
@@ -43,6 +46,45 @@ function extractAddressPayload(result: unknown): unknown {
   return parseMcpPayload(first.text) ?? first.text;
 }
 
+/** 与 resolveSigner 内设备流登录参数一致，供独立授权工具复用 */
+export async function runQuickWalletDeviceAuthIfNeeded(
+  mcp: GateMcpClient,
+  mcpWalletUrl: string,
+  context: ResolveSignerContext,
+): Promise<"already_authenticated" | "login_succeeded"> {
+  if (mcp.isMcpTokenUsable()) {
+    return "already_authenticated";
+  }
+
+  const isGoogle = context.walletLoginProvider === "google";
+  const providerLabel = isGoogle ? "Google" : "Gate";
+  console.error(
+    `[x402_request] quick_wallet: 无有效 MCP token（缺失或已过期），开始 ${providerLabel} 设备流登录…`,
+  );
+
+  const loginOk = await loginWithDeviceFlow(
+    mcp,
+    mcpWalletUrl,
+    isGoogle,
+    providerLabel,
+    {
+      saveToken: false,
+      reportAddresses: false,
+    },
+  );
+
+  if (!loginOk) {
+    throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
+  }
+
+  return "login_succeeded";
+}
+
+export async function getQuickWalletAddressPayload(mcp: GateMcpClient): Promise<unknown> {
+  const addressResult = await mcp.walletGetAddresses();
+  return extractAddressPayload(addressResult);
+}
+
 export class QuickWalletMode implements SignModeDefinition {
   readonly id = "quick_wallet" as const;
   readonly priority = 20;
@@ -77,30 +119,14 @@ export class QuickWalletMode implements SignModeDefinition {
       apiKey: this.options.mcpApiKey,
     });
 
-    if (!mcp.isMcpTokenUsable()) {
-      const isGoogle = context.walletLoginProvider === "google";
-      const providerLabel = isGoogle ? "Google" : "Gate";
-      console.error(
-        `[x402_request] quick_wallet: 无有效 MCP token（缺失或已过期），开始 ${providerLabel} 设备流登录…`,
-      );
+    const authPhase = await runQuickWalletDeviceAuthIfNeeded(
+      mcp,
+      this.options.mcpWalletUrl,
+      context,
+    );
 
-      const loginOk = await loginWithDeviceFlow(
-        mcp,
-        this.options.mcpWalletUrl,
-        isGoogle,
-        providerLabel,
-        {
-          saveToken: false,
-          reportAddresses: false,
-        },
-      );
-
-      if (!loginOk) {
-        throw new Error("quick_wallet login did not complete (cancelled, failed, or timed out)");
-      }
-
-      const addressResult = await mcp.walletGetAddresses();
-      const addresses = extractAddressPayload(addressResult);
+    if (authPhase === "login_succeeded") {
+      const addresses = await getQuickWalletAddressPayload(mcp);
       throw new Error(
         [
           "quick_wallet 登录成功。",

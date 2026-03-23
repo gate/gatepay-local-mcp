@@ -21,8 +21,12 @@ import {
   createSignModeRegistry,
   formatSignModeSelectionError,
 } from "./modes/registry.js";
-import { QuickWalletMode } from "./modes/quick-wallet.js";
-import { getMcpClientSync } from "./wallets/wallet-mcp-clients.js";
+import {
+  getQuickWalletAddressPayload,
+  QuickWalletMode,
+  runQuickWalletDeviceAuthIfNeeded,
+} from "./modes/quick-wallet.js";
+import { getMcpClient, getMcpClientSync } from "./wallets/wallet-mcp-clients.js";
 import type { PaymentRequired, PaymentPayload } from "./x402/types.js";
 import { X402ClientStandalone } from "./x402/client.js";
 import { ExactEvmScheme } from "./x402/exactEvmScheme.js";
@@ -173,6 +177,25 @@ const SIGN_PAYMENT_DESCRIPTION =
   "and submit the payment to complete a 402-protected request. " +
   "Supports three signing modes: local_private_key (local EVM wallet), quick_wallet (custodial MCP wallet), and plugin_wallet (browser extension wallet). " +
   "Provide either payment_required_header or response_body containing X402 payment requirements.";
+
+const QUICK_WALLET_AUTH_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    wallet_login_provider: {
+      type: "string",
+      description:
+        "Device-flow OAuth provider when MCP token is missing or expired. google = Google account, gate = Gate account. Defaults to gate.",
+      enum: ["google", "gate"],
+    },
+  },
+  required: [] as const,
+};
+
+const QUICK_WALLET_AUTH_DESCRIPTION =
+  "When the user selects sign_mode quick_wallet, run this tool first to perform the same device-flow login/authorization as the quick_wallet signing path. " +
+  "If the in-process MCP token is already valid, returns ready status and wallet addresses; otherwise opens the browser flow (Gate by default, or Google if wallet_login_provider is google). " +
+  "After a fresh login succeeds, the user may need to confirm before continuing to payment. " +
+  "To switch authorization provider (e.g. Gate vs Google), restart the MCP server; the in-process wallet client keeps the current session until restart.";
 
 function parsePossiblyNestedJson(text: string): unknown {
   try {
@@ -407,6 +430,55 @@ async function handlePlaceOrder(args: Record<string, unknown>): Promise<CallTool
   }
 }
 
+async function handleQuickWalletAuth(
+  args: Record<string, unknown>,
+  options: { mcpWalletUrl: string; mcpApiKey?: string },
+): Promise<CallToolResult> {
+  const walletLoginProvider: "google" | "gate" =
+    String(args.wallet_login_provider ?? "gate").toLowerCase() === "google"
+      ? "google"
+      : "gate";
+
+  try {
+    const mcp = await getMcpClient({
+      serverUrl: options.mcpWalletUrl,
+      apiKey: options.mcpApiKey,
+    });
+
+    const phase = await runQuickWalletDeviceAuthIfNeeded(
+      mcp,
+      options.mcpWalletUrl,
+      { walletLoginProvider },
+    );
+
+    const addresses = await getQuickWalletAddressPayload(mcp);
+
+    if (phase === "login_succeeded") {
+      return createSuccessResponse(
+        [
+          "quick_wallet 登录成功。",
+          `钱包地址信息：${JSON.stringify(addresses, null, 2)}`
+        ].join("\n"),
+      );
+    }
+
+    return createSuccessResponse(
+      JSON.stringify(
+        {
+          status: "ready",
+          summary: "quick_wallet 进程内已有有效 MCP 登录态。",
+          wallet_addresses: addresses,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return createErrorResponse(message);
+  }
+}
+
 async function handleSignPayment(
   args: Record<string, unknown>,
   signModeRegistry: ReturnType<typeof createSignModeRegistry>
@@ -544,6 +616,11 @@ async function main(): Promise<void> {
         description: SIGN_PAYMENT_DESCRIPTION,
         inputSchema: SIGN_PAYMENT_INPUT_SCHEMA,
       },
+      {
+        name: "x402_quick_wallet_auth",
+        description: QUICK_WALLET_AUTH_DESCRIPTION,
+        inputSchema: QUICK_WALLET_AUTH_INPUT_SCHEMA,
+      },
     ],
   }));
 
@@ -557,6 +634,13 @@ async function main(): Promise<void> {
 
     if (name === "x402_sign_payment") {
       return await handleSignPayment(args ?? {}, signModeRegistry);
+    }
+
+    if (name === "x402_quick_wallet_auth") {
+      return await handleQuickWalletAuth(args ?? {}, {
+        mcpWalletUrl: quickWalletMcpUrl,
+        mcpApiKey: quickWalletApiKey,
+      });
     }
 
     // 保留原有 x402_request 工具的处理逻辑（虽然不再对外暴露）
