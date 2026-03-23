@@ -21,6 +21,7 @@
     "test:getTools": "tsx test/mcpclient.ts",
     "test:pluginWallet": "tsx test/pluginWallet.ts",
     "test:mcp-tool": "tsx test/mcp-x402-request-tool.ts",
+    "test:split-tools": "tsx test/split-tools.test.ts",
     "test:wallet-mcp": "tsx test/wallet-mcp-auth.ts",
     "test:device-flow-login": "tsx test/device-flow-login.ts",
     "test:signer-mcp": "tsx test/signer-mcp-wallet.ts",

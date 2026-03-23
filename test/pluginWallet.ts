@@ -11,7 +11,6 @@
  * - 可在项目根目录 .env 中配置
  */
 import { config } from "dotenv";
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
