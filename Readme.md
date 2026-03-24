@@ -14,11 +14,11 @@
 
 The server currently registers these signing modes:
 
-| `sign_mode`         | Status                              | Description                                                              |
-| ------------------- | ----------------------------------- | ------------------------------------------------------------------------ |
-| `local_private_key` | Ready when `EVM_PRIVATE_KEY` is set | Signs locally with your EVM private key                                  |
-| `quick_wallet`      | Ready after login                   | Uses the remote MCP wallet and can trigger device-flow login when needed |
-| `plugin_wallet`     | Placeholder                         | Reserved for future extension, not implemented yet                       |
+| `sign_mode`         | Status                                           | Description                                                              |
+| ------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
+| `local_private_key` | Ready when `EVM_PRIVATE_KEY` is set              | Signs locally with your EVM private key                                  |
+| `quick_wallet`      | Ready after login                                | Uses the remote MCP wallet and can trigger device-flow login when needed |
+| `plugin_wallet`     | Ready when `PLUGIN_WALLET_TOKEN` is set          | Signs via browser extension wallet (e.g., Gate Wallet)                   |
 
 If `sign_mode` is omitted, the server auto-selects the highest-priority ready mode.
 
@@ -61,15 +61,42 @@ If you prefer remote wallet signing, you can omit `EVM_PRIVATE_KEY` and let the 
 
 When `quick_wallet` has no saved token, the server can start a device-flow login and persist the token at `~/.gate-pay/auth.json`.
 
+### Cursor / Claude Desktop with plugin wallet
+
+If you want to use a browser extension wallet (like Gate Wallet) for signing, configure the plugin wallet mode:
+
+```json
+{
+  "mcpServers": {
+    "gatepay-mcp": {
+      "command": "npx",
+      "args": ["-y", "gatepay-local-mcp"],
+      "env": {
+        "PLUGIN_WALLET_SERVER_URL": "https://your-plugin-wallet-server.com",
+        "PLUGIN_WALLET_TOKEN": "your-token-from-browser-wallet"
+      }
+    }
+  }
+}
+```
+
+Before using plugin wallet mode:
+1. Install a compatible browser extension wallet (e.g., [Gate Wallet](https://www.gate.io/web3))
+2. Open the wallet extension in your browser and obtain the connection token
+3. Configure `PLUGIN_WALLET_SERVER_URL` and `PLUGIN_WALLET_TOKEN` in your MCP config
+4. The wallet extension must be active in your browser when making x402 requests
+
 ## Environment Variables
 
 The server loads `.env` from the repository or package root at startup.
 
 ### Runtime variables
 
-| Variable          | Required | Default | Description                                                                 |
-| ----------------- | -------- | ------- | --------------------------------------------------------------------------- |
-| `EVM_PRIVATE_KEY` | No       | —       | Local EVM private key used by `local_private_key`; hex with or without `0x` |
+| Variable                    | Required | Default | Description                                                                 |
+| --------------------------- | -------- | ------- | --------------------------------------------------------------------------- |
+| `EVM_PRIVATE_KEY`           | No       | —       | Local EVM private key used by `local_private_key`; hex with or without `0x` |
+| `PLUGIN_WALLET_SERVER_URL`  | No       | —       | Base URL for the plugin wallet MCP server (required for `plugin_wallet`)   |
+| `PLUGIN_WALLET_TOKEN`       | No       | —       | Authentication token for plugin wallet (required for `plugin_wallet`)      |
 
 ### Test and script variables
 
