@@ -26,6 +26,8 @@ import {
   QuickWalletMode,
   runQuickWalletDeviceAuthIfNeeded,
 } from "./modes/quick-wallet.js";
+import { runGatePayDeviceAuthIfNeeded } from "./gate-pay/auth.js";
+import { getGatePayAccessToken } from "./gate-pay/pay-token-store.js";
 import { getMcpClient, getMcpClientSync } from "./wallets/wallet-mcp-clients.js";
 import type { PaymentRequired, PaymentPayload } from "./x402/types.js";
 import { X402ClientStandalone } from "./x402/client.js";
@@ -165,7 +167,7 @@ const SIGN_PAYMENT_INPUT_SCHEMA = {
     wallet_login_provider: {
       type: "string",
       description:
-        "When quick_wallet needs login: OAuth provider. google = Google account, gate = Gate account. Defaults to gate.",
+        "When quick_wallet needs login: google = Google account, gate = Gate account. Defaults to gate.",
       enum: ["google", "gate"],
     },
   },
@@ -175,7 +177,8 @@ const SIGN_PAYMENT_INPUT_SCHEMA = {
 const SIGN_PAYMENT_DESCRIPTION =
   "Parse X402 payment requirements from PAYMENT-REQUIRED header or response body, create a signed payment authorization, " +
   "and submit the payment to complete a 402-protected request. " +
-  "Supports three signing modes: local_private_key (local EVM wallet), quick_wallet (custodial MCP wallet), and plugin_wallet (browser extension wallet). " +
+  "Supports signing modes: local_private_key (local EVM wallet), quick_wallet (custodial MCP wallet), and plugin_wallet (browser extension wallet). " +
+  "For centralized payment (中心化支付), obtain Gate Pay access_token via x402_gate_pay_auth and use x402_submit_payment with sign_mode centralized_payment — no MCP calls for Gate Pay auth. " +
   "Provide either payment_required_header or response_body containing X402 payment requirements.";
 
 const QUICK_WALLET_AUTH_INPUT_SCHEMA = {
@@ -196,6 +199,18 @@ const QUICK_WALLET_AUTH_DESCRIPTION =
   "If the in-process MCP token is already valid, returns ready status and wallet addresses; otherwise opens the browser flow (Gate by default, or Google if wallet_login_provider is google). " +
   "After a fresh login succeeds, the user may need to confirm before continuing to payment. " +
   "To switch authorization provider (e.g. Gate vs Google), restart the MCP server; the in-process wallet client keeps the current session until restart.";
+
+const GATE_PAY_AUTH_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {},
+  required: [] as const,
+};
+
+const GATE_PAY_AUTH_DESCRIPTION =
+  "When the user chooses centralized_payment (中心化支付), run this tool to complete Gate Pay device-flow authorization over HTTP (not MCP). " +
+  "Requires GATE_PAY_DEVICE_START_URL and GATE_PAY_DEVICE_POLL_URL (legacy PAY_GATE_* still supported); optional GATE_PAY_DEVICE_API_KEY as x-api-key. " +
+  "Stores access_token in-process for Authorization: Bearer on x402_submit_payment when sign_mode is centralized_payment. " +
+  "Wallet MCP login (x402_quick_wallet_auth) is separate and not used for Gate Pay.";
 
 // New tool schemas for signature creation and payment submission
 const CREATE_SIGNATURE_INPUT_SCHEMA = {
@@ -226,7 +241,7 @@ const CREATE_SIGNATURE_INPUT_SCHEMA = {
 const CREATE_SIGNATURE_DESCRIPTION = 
   "Parse X402 payment requirements and create a signed payment authorization. " +
   "Returns the complete payment payload including signature and the base64-encoded " +
-  "PAYMENT-SIGNATURE header value. Supports three signing modes: local_private_key, " +
+  "PAYMENT-SIGNATURE header value. Supports signing modes: local_private_key, " +
   "quick_wallet, and plugin_wallet. The output can be used with x402_submit_payment " +
   "to complete the payment request.";
 
@@ -250,6 +265,12 @@ const SUBMIT_PAYMENT_INPUT_SCHEMA = {
       type: "string",
       description: "Base64-encoded PAYMENT-SIGNATURE header value from x402_create_signature",
     },
+    sign_mode: {
+      type: "string",
+      description:
+        "When set to centralized_payment (中心化支付), completes Gate Pay device authorization if needed and sends Authorization: Bearer <Gate Pay access_token> with the request. Other modes omit this header.",
+      enum: ["centralized_payment"],
+    },
   },
   required: ["url", "payment_signature"],
 };
@@ -257,7 +278,9 @@ const SUBMIT_PAYMENT_INPUT_SCHEMA = {
 const SUBMIT_PAYMENT_DESCRIPTION =
   "Submit a signed payment to complete a 402-protected request. Takes the " +
   "payment_signature from x402_create_signature and sends it to the merchant " +
-  "along with the original request. Returns the final response from the merchant.";
+  "along with the original request. " +
+  "When sign_mode is centralized_payment, runs Gate Pay HTTP device auth if needed (same as x402_gate_pay_auth, no MCP) and attaches Authorization: Bearer <Gate Pay access_token>. " +
+  "Returns the final response from the merchant.";
 
 function parsePossiblyNestedJson(text: string): unknown {
   try {
@@ -541,6 +564,37 @@ async function handleQuickWalletAuth(
   }
 }
 
+async function handleGatePayAuth(): Promise<CallToolResult> {
+  try {
+    const phase = await runGatePayDeviceAuthIfNeeded();
+    const token = getGatePayAccessToken();
+    const masked =
+      token && token.length > 12
+        ? `${token.slice(0, 8)}...${token.slice(-4)}`
+        : token
+          ? "***"
+          : null;
+
+    return createSuccessResponse(
+      JSON.stringify(
+        {
+          status: phase === "login_succeeded" ? "authorized" : "ready",
+          summary:
+            phase === "already_authenticated"
+              ? "进程内已有有效 Gate Pay access_token（中心化支付）。"
+              : "Gate Pay 设备流登录成功，已保存 access_token。",
+          gate_pay_access_token_masked: masked,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return createErrorResponse(message);
+  }
+}
+
 async function handleSignPayment(
   args: Record<string, unknown>,
   signModeRegistry: ReturnType<typeof createSignModeRegistry>
@@ -628,7 +682,7 @@ async function handleSignPayment(
     const request = new Request(url, init);
     request.headers.set("PAYMENT-SIGNATURE", encoded);
     request.headers.set("Access-Control-Expose-Headers", "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE");
-    
+
     const finalResponse = await fetch(request);
     const finalResponseText = await finalResponse.text();
     
@@ -721,29 +775,45 @@ async function handleCreateSignature(
   }
 }
 
-async function handleSubmitPayment(
-  args: Record<string, unknown>
-): Promise<CallToolResult> {
+async function handleSubmitPayment(args: Record<string, unknown>): Promise<CallToolResult> {
   try {
     const url = String(args.url ?? "").trim();
     const method = String(args.method ?? "POST").trim().toUpperCase();
     const body = args.body != null ? String(args.body) : "";
     const paymentSignature = String(args.payment_signature ?? "").trim();
-    
+    const signMode = args.sign_mode != null ? String(args.sign_mode).trim() : undefined;
+
     if (!url || !url.startsWith("http")) {
       return createErrorResponse("缺少或无效参数 url（需完整 http/https URL）。");
     }
-    
+
     if (!paymentSignature) {
       return createErrorResponse("缺少 payment_signature 参数。");
     }
-    
+
+    if (signMode && signMode !== "centralized_payment") {
+      return createErrorResponse(
+        `x402_submit_payment 的 sign_mode 仅支持 centralized_payment（或未传）；收到: ${signMode}`,
+      );
+    }
+
     // 构建请求并添加签名头
     const init = buildRequestInit(method, body);
     const request = new Request(url, init);
     request.headers.set("PAYMENT-SIGNATURE", paymentSignature);
     request.headers.set("Access-Control-Expose-Headers", "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE");
-    
+
+    if (signMode === "centralized_payment") {
+      await runGatePayDeviceAuthIfNeeded();
+      const payToken = getGatePayAccessToken();
+      if (!payToken) {
+        return createErrorResponse(
+          "中心化支付需要 Gate Pay 授权，但未能获取 access_token。请配置 GATE_PAY_DEVICE_START_URL / GATE_PAY_DEVICE_POLL_URL（或旧名 PAY_GATE_*）并执行 x402_gate_pay_auth 或重试。",
+        );
+      }
+      request.headers.set("Authorization", `Bearer ${payToken}`);
+    }
+
     // 发送支付请求
     const finalResponse = await fetch(request);
     const finalResponseText = await finalResponse.text();
@@ -805,6 +875,11 @@ async function main(): Promise<void> {
         inputSchema: SUBMIT_PAYMENT_INPUT_SCHEMA,
       },
       {
+        name: "x402_gate_pay_auth",
+        description: GATE_PAY_AUTH_DESCRIPTION,
+        inputSchema: GATE_PAY_AUTH_INPUT_SCHEMA,
+      },
+      {
         name: "x402_quick_wallet_auth",
         description: QUICK_WALLET_AUTH_DESCRIPTION,
         inputSchema: QUICK_WALLET_AUTH_INPUT_SCHEMA,
@@ -830,6 +905,10 @@ async function main(): Promise<void> {
 
     if (name === "x402_submit_payment") {
       return await handleSubmitPayment(args ?? {});
+    }
+
+    if (name === "x402_gate_pay_auth") {
+      return await handleGatePayAuth();
     }
 
     if (name === "x402_quick_wallet_auth") {
