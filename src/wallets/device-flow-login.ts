@@ -217,6 +217,10 @@ export async function loginWithDeviceFlow(
     interval?: number;
   }>(startResult);
 
+  console.error(
+    `[device-flow-login] auth start parsed:\n${JSON.stringify(parsed, null, 2)}`,
+  );
+
   if (!parsed?.verification_url || !parsed?.flow_id) {
     console.error("Failed to start login flow (invalid response)");
     return false;

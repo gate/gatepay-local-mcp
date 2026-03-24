@@ -1,50 +1,19 @@
 /**
- * Gate Pay 设备授权流：通过 HTTP 调用支付侧 OAuth 接口（不使用 MCP）。
- * 环境变量（优先 GATE_PAY_*，兼容旧名 PAY_GATE_*）：
- *   GATE_PAY_DEVICE_START_URL — 启动设备流（默认 POST JSON，返回 flow_id / verification_url 等）
- *   GATE_PAY_DEVICE_POLL_URL  — 轮询（默认 POST JSON { flow_id }）
- * 可选：GATE_PAY_DEVICE_API_KEY — 若设置则作为 x-api-key 发往上述请求
+ * Gate Pay 授权：浏览器打开 Gate 授权页 → 用户同意后回调本机 localhost → 本地请求远程 OAuth 后端用授权码换取 access_token。无设备流 start/poll 轮询。
+ *
+ * 可选环境变量（覆盖默认测试环境）：
+ *   GATE_PAY_OAUTH_TOKEN_BASE_URL — 换 token 的 HTTPS 服务基址（优先）
+ *   GATE_PAY_OAUTH_MCP_SERVER_URL — 同上，旧名，仍兼容
+ *   GATE_PAY_OAUTH_AUTHORIZE_URL  — Gate 授权页
+ *   GATE_PAY_OAUTH_CLIENT_ID / GATE_PAY_OAUTH_SCOPE
+ *   GATE_PAY_OAUTH_CALLBACK_PORT  — 本地回调监听端口，0 表示随机
  */
 
 import { spawn } from "node:child_process";
+import { createServer, type Server } from "node:http";
 import { setGatePayAccessToken } from "./pay-token-store.js";
 
-function envStartUrl(): string | undefined {
-  const u =
-    process.env.GATE_PAY_DEVICE_START_URL?.trim() ||
-    process.env.PAY_GATE_DEVICE_START_URL?.trim();
-  return u || undefined;
-}
-
-function envPollUrl(): string | undefined {
-  const u =
-    process.env.GATE_PAY_DEVICE_POLL_URL?.trim() ||
-    process.env.PAY_GATE_DEVICE_POLL_URL?.trim();
-  return u || undefined;
-}
-
-function envApiKey(): string | undefined {
-  const k =
-    process.env.GATE_PAY_DEVICE_API_KEY?.trim() ||
-    process.env.PAY_GATE_DEVICE_API_KEY?.trim();
-  return k || undefined;
-}
-
-function computeExpiresAtMs(
-  login: { expires_in?: number; expired_at?: number } | undefined,
-  poll: { expires_in?: number },
-): number {
-  if (login && typeof login.expired_at === "number" && login.expired_at > 0) {
-    return login.expired_at > 1e12 ? login.expired_at : login.expired_at * 1000;
-  }
-  const sec = login?.expires_in ?? poll.expires_in;
-  if (typeof sec === "number" && sec > 0) {
-    return Date.now() + sec * 1000;
-  }
-  return Date.now() + 30 * 86_400_000;
-}
-
-async function openBrowser(url: string): Promise<boolean> {
+export async function openBrowser(url: string): Promise<boolean> {
   const cmd =
     process.platform === "darwin"
       ? "open"
@@ -59,181 +28,353 @@ async function openBrowser(url: string): Promise<boolean> {
     child.unref();
     return true;
   } catch {
-    console.error("");
-    console.error(`\x1b[33m⚠  Could not open browser automatically.\x1b[0m`);
-    console.error(`   Copy URL: \x1b[36m${url}\x1b[0m`);
-    console.error("");
+    printManualUrl(url);
     return false;
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function buildAuthHeaders(): HeadersInit {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  const key = envApiKey();
-  if (key) headers["x-api-key"] = key;
-  return headers;
+function printManualUrl(url: string): void {
+  const termLink = `\x1b]8;;${url}\x1b\\Click here to open\x1b]8;;\x1b\\`;
+  console.error("");
+  console.error(`\x1b[33m⚠  Could not open browser automatically.\x1b[0m`);
+  console.error(`\x1b[1m   ${termLink}\x1b[0m  or copy the URL below:`);
+  console.error("");
+  console.error(`   \x1b[36m${url}\x1b[0m`);
+  console.error("");
 }
 
 export type GatePayDeviceFlowResult = boolean;
 
+// ─── 本地回调 + 远程换 token ─────────────────────────────────────────
+
+export interface OAuthToken {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  expiresAt: number;
+  userId: string;
+  walletAddress?: string | undefined;
+}
+
+interface TokenExchangeResponse {
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  user_id?: string;
+  wallet_address?: string;
+  error?: string;
+}
+
+/** 从 OAuth 换 token 接口 JSON 中取 bearer（兼容多种后端字段名） */
+function bearerTokenFromExchangeJson(data: Record<string, unknown>): string | undefined {
+  const a = data.access_token;
+  if (typeof a === "string" && a) return a;
+  const b = data["mcp_token"];
+  if (typeof b === "string" && b) return b;
+  return undefined;
+}
+
+const SUCCESS_HTML = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>OAuth Success</title>
+<style>
+  body { font-family: -apple-system, sans-serif; display: flex; justify-content: center;
+    align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+  .card { background: white; padding: 48px; border-radius: 12px; text-align: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+  .check { font-size: 48px; margin-bottom: 16px; }
+  h2 { color: #1a1a1a; margin: 0 0 8px; }
+  p { color: #666; margin: 0; }
+</style></head>
+<body>
+  <div class="card">
+    <div class="check">&#10003;</div>
+    <h2>Authorization Successful</h2>
+    <p>You can close this tab and return to the terminal.</p>
+  </div>
+</body>
+</html>`;
+
+const ERROR_HTML = (msg: string) => `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>OAuth Error</title>
+<style>
+  body { font-family: -apple-system, sans-serif; display: flex; justify-content: center;
+    align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+  .card { background: white; padding: 48px; border-radius: 12px; text-align: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+  .icon { font-size: 48px; margin-bottom: 16px; }
+  h2 { color: #e53e3e; margin: 0 0 8px; }
+  p { color: #666; margin: 0; }
+</style></head>
+<body>
+  <div class="card">
+    <div class="icon">&#10007;</div>
+    <h2>Authorization Failed</h2>
+    <p>${msg}</p>
+  </div>
+</body>
+</html>`;
+
+interface BaseOAuthConfig {
+  /** HTTPS 基址，用于 code → access_token 的 REST 调用 */
+  oauthTokenBaseUrl: string;
+  callbackPort: number;
+}
+
+abstract class BaseLocalOAuth<C extends BaseOAuthConfig> {
+  protected config: C;
+  private token: OAuthToken | null = null;
+  private server: Server | null = null;
+
+  constructor(config: C) {
+    this.config = config;
+  }
+
+  protected abstract buildAuthUrl(redirectUri: string): string;
+  protected abstract exchangeCode(
+    code: string,
+    redirectUri: string,
+  ): Promise<OAuthToken>;
+
+  /**
+   * OAuth 登录：本地起监听 → 拼装带 redirect_uri 的授权 URL → 浏览器打开授权页 →
+   * 用户在 IdP 确认后浏览器重定向回 localhost，由监听收到 code → 再换 token。
+   * 注意：必须先启动监听并得到实际端口，才能拼进 authUrl 的 redirect_uri，因此不能先打开浏览器再起服务。
+   */
+  async login(): Promise<OAuthToken> {
+    const { code, redirectUri } = await this.waitForAuthorizationCode();
+    const tok = await this.exchangeCode(code, redirectUri);
+    this.token = tok;
+    return tok;
+  }
+
+  /** 启动 localhost 回调监听，拼装 authUrl 并打开浏览器，直到收到授权码或失败/超时 */
+  private waitForAuthorizationCode(): Promise<{ code: string; redirectUri: string }> {
+    return new Promise((resolve, reject) => {
+      let callbackPort = 0;
+
+      const server = createServer((req, res) => {
+        const url = new URL(req.url ?? "/", `http://127.0.0.1`);
+        if (url.pathname !== "/callback") {
+          res.writeHead(404);
+          res.end("Not found");
+          return;
+        }
+
+        const code = url.searchParams.get("code");
+        const error = url.searchParams.get("error");
+        const errorDesc = url.searchParams.get("error_description");
+
+        if (error) {
+          const msg = errorDesc ?? error;
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(ERROR_HTML(msg));
+          this.closeServer();
+          reject(new Error(`OAuth error: ${msg}`));
+          return;
+        }
+
+        if (!code) {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(ERROR_HTML("No authorization code received"));
+          this.closeServer();
+          reject(new Error("No authorization code received"));
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(SUCCESS_HTML);
+
+        const redirectUri = `http://localhost:${callbackPort}/callback`;
+        this.closeServer();
+        resolve({ code, redirectUri });
+      });
+
+      this.server = server;
+
+      const onSigint = () => {
+        this.closeServer();
+        reject(new Error("Login cancelled by user"));
+      };
+      process.once("SIGINT", onSigint);
+
+      server.listen(this.config.callbackPort, "127.0.0.1", () => {
+        // 1) 本地端口已监听，确定 OAuth redirect_uri（须先于授权 URL 拼装）
+        callbackPort = (server.address() as { port: number }).port;
+        const redirectUri = `http://localhost:${callbackPort}/callback`;
+
+        // 2) 拼装 Gate 授权页 URL（含 client_id、redirect_uri、scope 等）
+        const authUrl = this.buildAuthUrl(redirectUri);
+
+        // 3) 浏览器打开授权页；用户确认后 IdP 重定向到上述 redirect_uri，由本 server 处理回调
+        void openBrowser(authUrl);
+      });
+
+      server.on("error", (err) => {
+        process.removeListener("SIGINT", onSigint);
+        reject(new Error(`Failed to start local server: ${err.message}`));
+      });
+
+      const timeout = setTimeout(
+        () => {
+          process.removeListener("SIGINT", onSigint);
+          this.closeServer();
+          reject(new Error("OAuth login timed out (5 minutes)"));
+        },
+        5 * 60 * 1000,
+      );
+      timeout.unref();
+    });
+  }
+
+  protected parseTokenResponse(data: TokenExchangeResponse): OAuthToken {
+    if (data.error) {
+      throw new Error(data.error);
+    }
+    const accessToken = bearerTokenFromExchangeJson(
+      data as unknown as Record<string, unknown>,
+    );
+    if (!accessToken) {
+      throw new Error("No access_token in response");
+    }
+    return {
+      accessToken,
+      tokenType: data.token_type ?? "Bearer",
+      expiresIn: data.expires_in ?? 2592000,
+      expiresAt: Date.now() + (data.expires_in ?? 2592000) * 1000,
+      userId: data.user_id ?? "",
+      walletAddress: data.wallet_address,
+    };
+  }
+
+  private closeServer(): void {
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+  }
+
+  getToken(): OAuthToken | null {
+    if (this.token && Date.now() >= this.token.expiresAt) {
+      this.token = null;
+    }
+    return this.token;
+  }
+
+  setToken(token: OAuthToken): void {
+    this.token = token;
+  }
+
+  clearToken(): void {
+    this.token = null;
+    this.closeServer();
+  }
+
+  getBaseUrl(): string {
+    return this.config.oauthTokenBaseUrl;
+  }
+}
+
+export interface GateOAuthConfig extends BaseOAuthConfig {
+  gateAuthEndpoint: string;
+  clientId: string;
+  scope: string;
+}
+
+/** 默认测试环境；生产请通过环境变量或构造参数覆盖 */
+export const GATE_DEFAULT_CONFIG: GateOAuthConfig = {
+  oauthTokenBaseUrl: "http://localhost",
+  gateAuthEndpoint: "https://www.gate.com/oauth/authorize",
+  clientId: "JWjvVeiJaePiTvQZ",
+  scope: "fomox_login_info",
+  callbackPort: 0,
+};
+
+function gateOAuthConfigFromEnv(): Partial<GateOAuthConfig> {
+  const partial: Partial<GateOAuthConfig> = {};
+  const base =
+    process.env.GATE_PAY_OAUTH_TOKEN_BASE_URL?.trim() ||
+    process.env.GATE_PAY_OAUTH_MCP_SERVER_URL?.trim();
+  if (base) partial.oauthTokenBaseUrl = base;
+  const auth = process.env.GATE_PAY_OAUTH_AUTHORIZE_URL?.trim();
+  if (auth) partial.gateAuthEndpoint = auth;
+  const cid = process.env.GATE_PAY_OAUTH_CLIENT_ID?.trim();
+  if (cid) partial.clientId = cid;
+  const scope = process.env.GATE_PAY_OAUTH_SCOPE?.trim();
+  if (scope) partial.scope = scope;
+  const portStr = process.env.GATE_PAY_OAUTH_CALLBACK_PORT?.trim();
+  if (portStr) {
+    const n = parseInt(portStr, 10);
+    if (!Number.isNaN(n)) partial.callbackPort = n;
+  }
+  return partial;
+}
+
+export class GateOAuth extends BaseLocalOAuth<GateOAuthConfig> {
+  constructor(config?: Partial<GateOAuthConfig>) {
+    super({ ...GATE_DEFAULT_CONFIG, ...gateOAuthConfigFromEnv(), ...config });
+  }
+
+  protected buildAuthUrl(redirectUri: string): string {
+    const url = new URL(this.config.gateAuthEndpoint);
+    url.searchParams.set("client_id", this.config.clientId);
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", this.config.scope);
+    return url.toString();
+  }
+
+  protected async exchangeCode(
+    code: string,
+    redirectUri: string,
+  ): Promise<OAuthToken> {
+    const base = this.config.oauthTokenBaseUrl.replace(/\/$/, "");
+    const res = await fetch(
+      `${base}/callback?code=${encodeURIComponent(code)}&redirect_url=${encodeURIComponent(redirectUri)}`,
+    );
+
+    if (!res.ok) {
+      const altRes = await fetch(
+        `${base}/account/user/gate_oauth?code=${encodeURIComponent(code)}`,
+      );
+      if (!altRes.ok) {
+        throw new Error(
+          `Token exchange failed: ${res.status} ${res.statusText}`,
+        );
+      }
+      return this.parseTokenResponse(
+        (await altRes.json()) as TokenExchangeResponse,
+      );
+    }
+
+    return this.parseTokenResponse((await res.json()) as TokenExchangeResponse);
+  }
+}
+
+async function loginWithGatePayOAuthRedirect(): Promise<GatePayDeviceFlowResult> {
+  console.error(
+    "[Gate Pay] 请在浏览器完成授权；成功后将回调本机，并由本地调用远程接口获取 access_token。",
+  );
+  try {
+    const oauth = new GateOAuth();
+    const token = await oauth.login();
+    setGatePayAccessToken(token.accessToken, token.expiresAt);
+    console.error("[Gate Pay] Authorized; access_token stored.");
+    if (token.userId) console.error(`[Gate Pay] user_id: ${token.userId}`);
+    if (token.walletAddress) {
+      console.error(`[Gate Pay] wallet: ${token.walletAddress}`);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[Gate Pay] OAuth failed: ${(err as Error).message}`);
+    return false;
+  }
+}
+
 /**
- * 执行 Gate Pay HTTP 设备流，成功后写入 gate-pay-token-store。
+ * Gate Pay 授权：浏览器 OAuth + localhost 回调 + 远程换 token。成功后写入 pay-token-store。
  */
 export async function loginWithGatePayDeviceFlow(): Promise<GatePayDeviceFlowResult> {
-  const startUrl = envStartUrl();
-  const pollUrl = envPollUrl();
-  if (!startUrl || !pollUrl) {
-    console.error(
-      "[Gate Pay] 缺少环境变量 GATE_PAY_DEVICE_START_URL 或 GATE_PAY_DEVICE_POLL_URL（或旧名 PAY_GATE_*），无法启动授权。",
-    );
-    return false;
-  }
-
-  console.error("[Gate Pay] Starting device authorization (HTTP, no MCP)...");
-
-  let startRes: Response;
-  try {
-    startRes = await fetch(startUrl, {
-      method: "POST",
-      headers: buildAuthHeaders(),
-      body: "{}",
-    });
-  } catch (err) {
-    console.error(`[Gate Pay] Start request failed: ${(err as Error).message}`);
-    return false;
-  }
-
-  if (!startRes.ok) {
-    const t = await startRes.text();
-    console.error(`[Gate Pay] Start HTTP ${startRes.status}: ${t.slice(0, 500)}`);
-    return false;
-  }
-
-  let parsed: {
-    flow_id?: string;
-    verification_url?: string;
-    user_code?: string;
-    expires_in?: number;
-    interval?: number;
-  };
-  try {
-    parsed = (await startRes.json()) as typeof parsed;
-  } catch {
-    console.error("[Gate Pay] Start response is not JSON");
-    return false;
-  }
-
-  if (!parsed?.verification_url || !parsed?.flow_id) {
-    console.error("[Gate Pay] Invalid start response (need flow_id + verification_url)");
-    return false;
-  }
-
-  const intervalMs = (parsed.interval ?? 5) * 1000;
-  const expiresInSec = parsed.expires_in ?? 1800;
-  const deadline = Date.now() + expiresInSec * 1000;
-
-  console.error(`[Gate Pay] flow_id: ${parsed.flow_id}`);
-  console.error(`[Gate Pay] poll interval: ${intervalMs / 1000}s, expires_in: ${expiresInSec}s`);
-  if (parsed.user_code) {
-    console.error(`[Gate Pay] user_code: ${parsed.user_code}`);
-  }
-
-  const opened = await openBrowser(parsed.verification_url);
-  if (opened) {
-    console.error("[Gate Pay] Browser opened — please authorize.");
-  }
-
-  let cancelled = false;
-  const onSigint = () => {
-    cancelled = true;
-  };
-  process.once("SIGINT", onSigint);
-
-  let pollCount = 0;
-  while (Date.now() < deadline && !cancelled) {
-    await sleep(intervalMs);
-    pollCount += 1;
-    const remainingSec = Math.round((deadline - Date.now()) / 1000);
-    console.error(
-      `[Gate Pay] [poll #${pollCount}] POST poll — ~${remainingSec}s left`,
-    );
-
-    let pollRes: Response;
-    try {
-      pollRes = await fetch(pollUrl, {
-        method: "POST",
-        headers: buildAuthHeaders(),
-        body: JSON.stringify({ flow_id: parsed.flow_id }),
-      });
-    } catch (err) {
-      console.warn(`[Gate Pay] Poll failed: ${(err as Error).message} — retry`);
-      continue;
-    }
-
-    let poll: {
-      status: string;
-      error?: string;
-      access_token?: string;
-      mcp_token?: string;
-      user_id?: string;
-      expires_in?: number;
-      login_result?: {
-        access_token?: string;
-        mcp_token?: string;
-        user_id?: string;
-        expires_in?: number;
-        expired_at?: number;
-      };
-    };
-
-    try {
-      poll = (await pollRes.json()) as typeof poll;
-    } catch {
-      console.error(`[Gate Pay] Poll #${pollCount}: non-JSON body`);
-      continue;
-    }
-
-    if (!poll?.status) {
-      continue;
-    }
-
-    console.error(
-      `[Gate Pay] [poll #${pollCount}] status: ${poll.status}${poll.error ? ` error=${poll.error}` : ""}`,
-    );
-
-    if (poll.status === "ok") {
-      const login = poll.login_result;
-      const token =
-        poll.access_token ??
-        login?.access_token ??
-        login?.mcp_token ??
-        poll.mcp_token;
-      const userId = login?.user_id ?? poll.user_id;
-      if (token) {
-        const expiresAtMs = computeExpiresAtMs(login, poll);
-        setGatePayAccessToken(token, expiresAtMs);
-        process.removeListener("SIGINT", onSigint);
-        console.error("[Gate Pay] Authorized; access_token stored.");
-        if (userId) console.error(`[Gate Pay] user_id: ${userId}`);
-        return true;
-      }
-    }
-
-    if (poll.status === "error") {
-      process.removeListener("SIGINT", onSigint);
-      console.error(`[Gate Pay] Error: ${poll.error ?? "unknown"}`);
-      return false;
-    }
-  }
-
-  process.removeListener("SIGINT", onSigint);
-  console.error(cancelled ? "[Gate Pay] Cancelled" : "[Gate Pay] Timed out");
-  return false;
+  return loginWithGatePayOAuthRedirect();
 }

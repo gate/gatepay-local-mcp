@@ -207,8 +207,7 @@ const GATE_PAY_AUTH_INPUT_SCHEMA = {
 };
 
 const GATE_PAY_AUTH_DESCRIPTION =
-  "When the user chooses centralized_payment (中心化支付), run this tool to complete Gate Pay device-flow authorization over HTTP (not MCP). " +
-  "Requires GATE_PAY_DEVICE_START_URL and GATE_PAY_DEVICE_POLL_URL (legacy PAY_GATE_* still supported); optional GATE_PAY_DEVICE_API_KEY as x-api-key. " +
+  "When the user chooses centralized_payment (中心化支付), run this tool to complete Gate Pay OAuth: browser opens Gate authorize URL, redirect hits localhost callback, then the client exchanges the code for access_token via the remote OAuth backend (GATE_PAY_OAUTH_TOKEN_BASE_URL, etc.). " +
   "Stores access_token in-process for Authorization: Bearer on x402_submit_payment when sign_mode is centralized_payment. " +
   "Wallet MCP login (x402_quick_wallet_auth) is separate and not used for Gate Pay.";
 
@@ -268,7 +267,7 @@ const SUBMIT_PAYMENT_INPUT_SCHEMA = {
     sign_mode: {
       type: "string",
       description:
-        "When set to centralized_payment (中心化支付), completes Gate Pay device authorization if needed and sends Authorization: Bearer <Gate Pay access_token> with the request. Other modes omit this header.",
+        "When set to centralized_payment (中心化支付), completes Gate Pay OAuth (browser + localhost callback + remote token) if needed and sends Authorization: Bearer <Gate Pay access_token> with the request. Other modes omit this header.",
       enum: ["centralized_payment"],
     },
   },
@@ -279,7 +278,7 @@ const SUBMIT_PAYMENT_DESCRIPTION =
   "Submit a signed payment to complete a 402-protected request. Takes the " +
   "payment_signature from x402_create_signature and sends it to the merchant " +
   "along with the original request. " +
-  "When sign_mode is centralized_payment, runs Gate Pay HTTP device auth if needed (same as x402_gate_pay_auth, no MCP) and attaches Authorization: Bearer <Gate Pay access_token>. " +
+  "When sign_mode is centralized_payment, runs Gate Pay OAuth (local callback + remote token exchange) if needed, same as x402_gate_pay_auth, no MCP, and attaches Authorization: Bearer <Gate Pay access_token>. " +
   "Returns the final response from the merchant.";
 
 function parsePossiblyNestedJson(text: string): unknown {
@@ -808,7 +807,7 @@ async function handleSubmitPayment(args: Record<string, unknown>): Promise<CallT
       const payToken = getGatePayAccessToken();
       if (!payToken) {
         return createErrorResponse(
-          "中心化支付需要 Gate Pay 授权，但未能获取 access_token。请配置 GATE_PAY_DEVICE_START_URL / GATE_PAY_DEVICE_POLL_URL（或旧名 PAY_GATE_*）并执行 x402_gate_pay_auth 或重试。",
+          "中心化支付需要 Gate Pay 授权，但未能获取 access_token。请执行 x402_gate_pay_auth（浏览器 OAuth + 远程换 token），必要时检查 GATE_PAY_OAUTH_TOKEN_BASE_URL 等环境变量后重试。",
         );
       }
       request.headers.set("Authorization", `Bearer ${payToken}`);
