@@ -50,6 +50,7 @@ export class X402ClientStandalone {
     accepts: PaymentRequirements[],
   ): PaymentRequirements {
     const byNetwork = this.schemesByNetwork;
+    console.log("byNetwork", byNetwork);
     const supported = accepts.filter((r) => {
       const schemes = byNetwork.get(r.network);
       return schemes?.has(r.scheme);

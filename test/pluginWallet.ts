@@ -28,9 +28,9 @@ const DEFAULT_PLUGIN_WALLET_URL =
   "https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73";
 
 const REQUEST = {
-  url: "https://webws.gate.io:443/flight/order",
+  url: "https://dev.halftrust.xyz/pay-disputemanagement/flight/order",
   method: "POST" as const,
-  body: '{"flightId":"FL002","uid":"100","chain":"BASEEVM","fullCurrType":"USDC_BASEEVM"}',
+  body: '{"flightId":"FL002","uid":"100","chain":"SOL","fullCurrType":"USDC_SOL"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {

@@ -1,4 +1,4 @@
-import type { ClientEvmSigner } from "../x402/types.js";
+import type { ClientEvmSigner, ClientSvmSigner } from "../x402/types.js";
 
 export type SignModeId = "local_private_key" | "quick_wallet" | "plugin_wallet";
 
@@ -8,6 +8,7 @@ export interface ResolveSignerContext {
 
 export interface ResolvedSignerSession {
   signer: ClientEvmSigner;
+  solanaSigner?: ClientSvmSigner;
 }
 
 export type SignModeAvailability =
@@ -25,6 +26,7 @@ export interface SignModeDefinition {
 
 export interface BuildPayFetchInput {
   signer: ClientEvmSigner;
+  solanaSigner?: ClientSvmSigner;
 }
 
 export interface PayFetchFactory {

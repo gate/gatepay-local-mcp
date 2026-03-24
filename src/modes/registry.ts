@@ -124,7 +124,10 @@ export function createSignModeRegistry(
     const initPromise = (async () => {
       try {
         const session = await mode.resolveSigner(context);
-        const payFetch = payFetchFactory.build({ signer: session.signer });
+        const payFetch = payFetchFactory.build({ 
+          signer: session.signer,
+          solanaSigner: session.solanaSigner,
+        });
         readyFetchCache.set(cacheKey, payFetch);
         return payFetch;
       } catch (error) {

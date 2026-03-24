@@ -22,13 +22,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 config({ path: join(packageRoot, ".env") });
 
-const baseURL = process.env.RESOURCE_SERVER_URL || "https://webws.gate.io:443";
+const baseURL = process.env.RESOURCE_SERVER_URL || "https://dev.halftrust.xyz/pay-disputemanagement";
 const endpointPath = process.env.ENDPOINT_PATH || "/flight/order";
 
 const REQUEST = {
   url: `${baseURL}${endpointPath}`,
   method: "POST" as const,
-  body: '{"flightId": "FL002","uid": "100","chain":"MATIC","fullCurrType":"USDC_MATIC"}',
+  body: '{"flightId": "FL002","uid": "100","chain":"SOL","fullCurrType":"USDC_SOL"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {
@@ -49,10 +49,17 @@ function buildRequestInit(method: string, body?: string): RequestInit {
 }
 
 async function main(): Promise<void> {
-  if (!process.env.EVM_PRIVATE_KEY?.trim()) {
+  const evmPrivateKey = process.env.EVM_PRIVATE_KEY?.trim();
+  const svmPrivateKey = process.env.SVM_PRIVATE_KEY?.trim();
+
+  if (!evmPrivateKey) {
     console.error("❌ 缺少 EVM_PRIVATE_KEY 环境变量");
     process.exit(1);
   }
+
+  console.log("🔐 私钥配置状态:");
+  console.log(`   ✅ EVM_PRIVATE_KEY: 已配置`);
+  console.log(`   ${svmPrivateKey ? '✅' : '⚠️ '} SVM_PRIVATE_KEY: ${svmPrivateKey ? '已配置（支持 Solana 网络）' : '未配置（仅支持 EVM 网络）'}\n`);
 
   const registry = createSignModeRegistry([
     new LocalPrivateKeyMode(),

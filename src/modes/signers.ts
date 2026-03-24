@@ -1,5 +1,5 @@
 /**
- * EVM Signers for different signing modes:
+ * EVM & SVM Signers for different signing modes:
  * - Local Private Key (for local_private_key mode)
  * - Quick Wallet (for quick_wallet mode via MCP托管钱包)  
  * - Plugin Wallet (for plugin_wallet mode via 浏览器插件钱包)
@@ -8,7 +8,9 @@ import { signAsync } from "@noble/secp256k1";
 import type { Hex } from "viem";
 import { hexToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import type { ClientEvmSigner } from "../x402/types.js";
+import { createKeyPairSignerFromBytes } from "@solana/kit";
+import { base58 } from "@scure/base";
+import type { ClientEvmSigner, ClientSvmSigner } from "../x402/types.js";
 import type { PluginWalletClient } from "../wallets/plugin-wallet-client.js";
 import { buildEip712TypedDataDigest } from "../x402/utils.js";
 import type { GateMcpClient } from "../wallets/wallet-mcp-clients.js";
@@ -181,6 +183,29 @@ export function createLocalPrivateKeySigner(privateKey: Hex): ClientEvmSigner {
 export const createSignerFromPrivateKey = createLocalPrivateKeySigner;
 
 // ═══════════════════════════════════════════════════════════════════════════════════
+// LOCAL SOLANA PRIVATE KEY SIGNER (用于 Solana 网络的 local_private_key 签名模式)
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 创建本地 Solana 私钥 Signer (用于 Solana 网络的 local_private_key 签名模式)
+ * 
+ * 特点：
+ * - 完全本地签名，不依赖远程服务
+ * - 直接返回 @solana/kit 的 KeyPairSigner
+ * - 适用于 Solana/SVM 网络
+ * - 私钥格式为 base58 编码的字符串
+ * 
+ * @param privateKeyBase58 - Base58 编码的私钥字符串
+ * @returns ClientSvmSigner (即 TransactionSigner) 实例
+ */
+export async function createLocalSolanaPrivateKeySigner(
+  privateKeyBase58: string,
+): Promise<ClientSvmSigner> {
+  const privateKeyBytes = base58.decode(privateKeyBase58);
+  return await createKeyPairSignerFromBytes(privateKeyBytes);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════
 // PLUGIN WALLET SIGNER (用于 plugin_wallet 签名模式)  
 // ═══════════════════════════════════════════════════════════════════════════════════
 
@@ -277,6 +302,89 @@ export function createPluginWalletSigner(
 // 保持向后兼容
 export const createSignerFromPluginWallet = createPluginWalletSigner;
 
+// ═══════════════════════════════════════════════════════════════════════════════════
+// PLUGIN WALLET SOLANA SIGNER (用于 plugin_wallet 签名模式的 Solana 支持)
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 创建插件钱包 Solana Signer (用于 plugin_wallet 签名模式的 Solana 网络)
+ * 
+ * 特点：
+ * - 通过浏览器插件钱包 (如 Gate Wallet) 的 Solana 功能进行签名
+ * - 支持交易签名（实现 TransactionPartialSigner 接口）
+ * - 需要用户在浏览器中手动确认签名
+ * - 使用 sol_sign_transaction 工具
+ */
+export async function createPluginWalletSolanaSigner(
+  client: PluginWalletClient,
+  publicKeyBase58: string,
+): Promise<ClientSvmSigner> {
+  // 导入所需的函数
+  const { address: createAddress } = await import("@solana/addresses");
+  const { signatureBytes: createSignatureBytes } = await import("@solana/keys");
+  
+  // 使用 address 函数创建符合 Address 类型的地址
+  const address = createAddress(publicKeyBase58);
+
+  return {
+    address,
+    signTransactions: async (transactions, config) => {
+      void config; // 暂不使用 config 参数
+      
+      const signatureDictionaries = [];
+      
+      for (const transaction of transactions) {
+        // 将交易序列化为字节数组
+        const transactionMessage = transaction.messageBytes;
+        
+        // 将交易字节转换为 base64 编码
+        const transactionBase64 = Buffer.from(transactionMessage).toString('base64');
+        
+        // 调用插件钱包签名
+        const result = await client.solSignTransaction(transactionBase64);
+        const data = parseMcpToolResult<Record<string, unknown>>(result);
+        
+        if (!data) {
+          throw new Error("签名失败：未返回有效结果");
+        }
+        
+        // 从返回结果中提取签名
+        const signatureBase58 = extractSolanaSignature(data);
+        if (!signatureBase58) {
+          throw new Error("签名失败：未返回有效签名");
+        }
+        
+        // 解析签名为字节数组并转换为 SignatureBytes 类型
+        const signatureBytesArray = base58.decode(signatureBase58);
+        const signature = createSignatureBytes(signatureBytesArray);
+        
+        // 构建签名字典：{ [publicKey]: signature }
+        const signatureDictionary = {
+          [address]: signature,
+        };
+        
+        signatureDictionaries.push(signatureDictionary);
+      }
+      
+      return signatureDictionaries;
+    },
+  };
+}
+
+/**
+ * 从 MCP 返回结果中提取 Solana 签名
+ */
+function extractSolanaSignature(data: Record<string, unknown>): string | null {
+  // 检查常见的字段名
+  const signature = data.signature ?? data.sig;
+  
+  if (typeof signature === "string" && signature.length > 0) {
+    return signature;
+  }
+  
+  return null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════════  
 // QUICK WALLET SIGNER (用于 quick_wallet 签名模式)
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -364,3 +472,106 @@ export async function createQuickWalletSigner(
 
 // 保持向后兼容
 export const createSignerFromMcpWallet = createQuickWalletSigner;
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+// QUICK WALLET SOLANA SIGNER (用于 quick_wallet 签名模式的 Solana 支持)
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 创建快速托管钱包 Solana Signer (用于 quick_wallet 签名模式的 Solana 网络)
+ * 
+ * 特点：
+ * - 通过远程 MCP 托管钱包服务进行签名
+ * - 需要用户通过 OAuth (Google/Gate) 登录并获得 mcp_token
+ * - 完全托管，用户无需管理私钥
+ * 
+ * 注意：本函数逻辑照搬 createQuickWalletSigner，仅将 "EVM" 替换为 "SOL"
+ * TODO: 需要根据 Solana 实际签名流程调整以下部分
+ */
+export async function createQuickWalletSolanaSigner(
+  mcp: GateMcpClient,
+  options?: { solAddress?: string },
+): Promise<ClientSvmSigner> {
+  // TODO: 需要调整 - Solana 地址格式不同，需要使用 @solana/addresses 的 address() 函数
+  let address: string; // 临时使用 string，实际应该是 Address 类型
+  if (options?.solAddress) {
+    address = options.solAddress;
+  } else {
+    const addrResult = await mcp.walletGetAddresses();
+    const data = parseMcpToolResult<{ addresses?: Record<string, string> }>(addrResult);
+    const sol = data?.addresses?.SOL; // EVM → SOL
+    if (!sol) { // 移除 startsWith("0x") 检查，Solana 地址是 base58 格式
+      throw new Error(
+        "createQuickWalletSolanaSigner: no SOL address in wallet.get_addresses response",
+      );
+    }
+    address = sol;
+  }
+
+  // TODO: 需要调整 - signDigest 对应 Solana 应该是 signMessages
+  // Solana 没有 signDigest 概念，这里暂时保留作为参考
+  const signDigest = async (digest: string): Promise<string> => {
+    const result = await mcp.walletSignMessage("SOL", digest); // EVM → SOL
+    const data = parseMcpToolResult<Record<string, unknown>>(result);
+    // TODO: 需要调整 - extractSignatureFromMcpResult 是为 EVM 设计的
+    // Solana 签名格式不同（64 字节 vs 65 字节），需要新的提取函数
+    const sig = data && extractSignatureFromMcpResult(data);
+    if (!sig) {
+      throw new Error(
+        "createQuickWalletSolanaSigner: wallet.sign_message(digest) did not return a signature",
+      );
+    }
+    return sig as string; // 临时类型转换
+  };
+
+  // TODO: 需要完全重写 - Solana 使用 signTransactions 而不是 signTypedData
+  // 这里保留原结构只是为了展示对比
+  const signTypedData = async (msg: {
+    domain: Record<string, unknown>;
+    types: Record<string, unknown>;
+    primaryType: string;
+    message: Record<string, unknown>;
+  }): Promise<string> => {
+    // TODO: 需要调整 - Solana 不使用 EIP-712，这个函数不适用
+    // 实际应该接收 Transaction 对象并序列化为 base64
+    const digest = buildEip712TypedDataDigest(msg as Parameters<typeof buildEip712TypedDataDigest>[0]);
+    const digestForMcp = digest.replace(/^0x/i, "");
+    console.log("[createQuickWalletSolanaSigner] typedData digest:", digestForMcp);
+    const result = await mcp.walletSignMessage("SOL", digestForMcp); // EVM → SOL
+
+    const data = parseMcpToolResult<Record<string, unknown>>(result);
+    // TODO: 需要调整 - Solana 签名不需要 v 值归一化（EVM 特有）
+    const sig = data && extractSignatureFromMcpResult(data);
+    let normalizedSig: string | null = sig ? (sig as string) : null; // 修改类型
+    if (sig && /^0x[0-9a-fA-F]{130}$/.test(sig)) {
+      const vHex = sig.slice(130, 132);
+      const v = Number.parseInt(vHex, 16);
+      if (v === 0 || v === 1) {
+        const normalizedV = (v + 27).toString(16).padStart(2, "0");
+        normalizedSig = `${sig.slice(0, 130)}${normalizedV}`;
+      }
+    }
+    console.log("[createQuickWalletSolanaSigner] sig:", normalizedSig);
+
+    if (!normalizedSig) {
+      throw new Error(
+        "createQuickWalletSolanaSigner: wallet.sign_message(typedData digest) did not return a signature",
+      );
+    }
+    return normalizedSig;
+  };
+
+  // TODO: 需要完全重写返回对象 - 应该返回符合 TransactionPartialSigner 接口的对象
+  // 当前结构是 EVM 的 ClientEvmSigner，Solana 需要 ClientSvmSigner (TransactionPartialSigner)
+  return {
+    address: address as never, // TODO: 需要转换为 Address 类型
+    signTransactions: async (transactions, config) => {
+      void config;
+      // TODO: 实现实际的签名逻辑
+      // 1. 遍历 transactions
+      // 2. 对每个 transaction 调用 mcp.walletSignMessage("SOL", base64_transaction)
+      // 3. 返回 SignatureDictionary[]
+      throw new Error("signTransactions not implemented yet - need to replace signTypedData logic");
+    },
+  } as ClientSvmSigner;
+}

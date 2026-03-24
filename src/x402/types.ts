@@ -1,6 +1,7 @@
 /**
  * Standalone x402 types (no @x402/* deps).
  */
+import type { TransactionSigner } from "@solana/kit";
 
 export type Network = string;
 
@@ -58,6 +59,12 @@ export type ClientEvmSigner = {
   }): Promise<`0x${string}`>;
   signDigest?(digest: `0x${string}`): Promise<`0x${string}`>;
 };
+
+export type ClientSvmSigner = TransactionSigner;
+
+export interface ExactSvmPayloadV2 {
+  transaction: string;
+}
 
 export interface SchemeNetworkClient {
   scheme: string;

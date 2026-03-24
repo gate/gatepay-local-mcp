@@ -1,4 +1,4 @@
-import { createQuickWalletSigner } from "./signers.js";
+import { createQuickWalletSigner, createQuickWalletSolanaSigner } from "./signers.js";
 import { loginWithDeviceFlow } from "../wallets/device-flow-login.js";
 import {
   getMcpClient,
@@ -136,8 +136,20 @@ export class QuickWalletMode implements SignModeDefinition {
       );
     }
 
+    // 解析 EVM 签名器
+    const evmSigner = await createQuickWalletSigner(mcp);
+    
+    // 解析 Solana 签名器（可选，失败不影响 EVM）
+    let solanaSigner = undefined;
+    try {
+      solanaSigner = await createQuickWalletSolanaSigner(mcp);
+    } catch (error) {
+      console.warn("⚠️  未能创建 Solana 签名器:", error);
+    }
+
     return {
-      signer: await createQuickWalletSigner(mcp),
+      signer: evmSigner,
+      solanaSigner,
     };
   }
 

@@ -148,19 +148,23 @@ async function main(): Promise<void> {
     let signMode: string | undefined;
     let walletLoginProvider: string | undefined;
     
-    if (process.env.EVM_PRIVATE_KEY?.trim()) {
-      signMode = "local_private_key";
-      console.log("[签名模式] 使用 local_private_key");
-    } else if (process.env.QUICK_WALLET_API_KEY?.trim()) {
-      signMode = "quick_wallet";
-      walletLoginProvider = "gate";
-      console.log("[签名模式] 使用 quick_wallet");
-    } else {
-      console.log("警告：未设置 EVM_PRIVATE_KEY 或 QUICK_WALLET_API_KEY，跳过后续测试");
-      console.log("[测试完成] place_order 工具已验证");
-      await client.close();
-      return;
-    }
+    // if (process.env.EVM_PRIVATE_KEY?.trim()) {
+    //   signMode = "local_private_key";
+    //   console.log("[签名模式] 使用 local_private_key");
+    // } else if (process.env.QUICK_WALLET_API_KEY?.trim()) {
+    //   signMode = "quick_wallet";
+    //   walletLoginProvider = "gate";
+    //   console.log("[签名模式] 使用 quick_wallet");
+    // } else {
+    //   console.log("警告：未设置 EVM_PRIVATE_KEY 或 QUICK_WALLET_API_KEY，跳过后续测试");
+    //   console.log("[测试完成] place_order 工具已验证");
+    //   await client.close();
+    //   return;
+    // }
+
+    signMode = "quick_wallet";
+    walletLoginProvider = "gate";
+    console.log("[签名模式] 使用 quick_wallet");
 
     // 测试场景A：使用一体化工具 x402_sign_payment
     // console.log("\n[场景A] 测试一体化工具 x402_sign_payment...");
