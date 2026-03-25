@@ -143,7 +143,6 @@ export class QuickWalletMode implements SignModeDefinition {
     // 解析 Solana 签名器（可选，失败不影响 EVM）
     let solanaSigner = undefined;
     try {
-      console.log("createQuickWalletSolanaSigner mcp", mcp);
       solanaSigner = await createQuickWalletSolanaSigner(mcp);
     } catch (error) {
       console.warn("⚠️  未能创建 Solana 签名器:", error);

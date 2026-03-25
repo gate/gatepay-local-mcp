@@ -15,6 +15,32 @@ import type { PluginWalletClient } from "../wallets/plugin-wallet-client.js";
 import { buildEip712TypedDataDigest } from "../x402/utils.js";
 import type { GateMcpClient } from "../wallets/wallet-mcp-clients.js";
 
+/**
+ * 将 Solana 交易编码为 Base58 字符串
+ * 
+ * 类似于 @solana/transactions 的 getBase64EncodedWireTransaction，
+ * 但返回 Base58 编码而不是 Base64。
+ * 
+ * @param transaction - 要编码的 Solana 交易
+ * @returns Base58 编码的交易字符串
+ * 
+ * @example
+ * ```typescript
+ * const wireTransactionBase58 = getBase58EncodedWireTransaction(transaction);
+ * // 可以发送给支持 Base58 的 API
+ * ```
+ */
+function getBase58EncodedWireTransaction(
+  transaction: import("@solana/transactions").Transaction,
+  transactionEncoder: ReturnType<typeof import("@solana/transactions").getTransactionEncoder>
+): string {
+  // 使用 getTransactionEncoder() 获取完整的序列化交易字节
+  // 这包括签名槽位、消息和其他元数据
+  const wireTransactionBytes = transactionEncoder.encode(transaction);
+  // 将 ReadonlyUint8Array 转换为 Uint8Array 供 base58.encode 使用
+  return base58.encode(new Uint8Array(wireTransactionBytes));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // 通用辅助函数 (Common Utilities)
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -408,6 +434,70 @@ export async function createPluginWalletSolanaSigner(
  * 
  * 注意：此函数会尝试智能识别正确的签名位置，但在多签名交易中可能需要额外验证
  */
+/**
+ * 从 Quick Wallet MCP 返回结果中提取 Solana 签名
+ * 
+ * Quick Wallet 返回格式：
+ * ```json
+ * {
+ *   "signature": "161e1cf41d39ac5358b1713ebef6b219bd4ac6ef2b3deed6815ada1501a0b9f38c2f70864293a75af5c7ed269d42d62d4cb27ba1c9d4d339ede30e8fba827a0b",
+ *   "publicKey": "0c31b6a5799719be8f62673948deafc2340520eca3dbc3d271d94705d38ecc9a",
+ *   "signedTransaction": "base58_encoded_signed_transaction..."
+ * }
+ * ```
+ * 
+ * @param data - Quick Wallet MCP 返回的数据对象
+ * @returns 签名信息，包含 hex 和 base58 格式
+ */
+function extractQuickWalletSolanaSignature(
+  data: Record<string, unknown>
+): { signatureHex: string; signatureBase58: string; publicKeyHex: string } | null {
+  // 检查必需字段
+  const signatureHex = data.signature;
+  const publicKeyHex = data.publicKey;
+  
+  if (typeof signatureHex !== "string" || signatureHex.length !== 128) {
+    console.error("[extractQuickWalletSolanaSignature] 签名格式无效，应为 128 字符的 hex 字符串");
+    return null;
+  }
+  
+  if (typeof publicKeyHex !== "string" || publicKeyHex.length !== 64) {
+    console.error("[extractQuickWalletSolanaSignature] 公钥格式无效，应为 64 字符的 hex 字符串");
+    return null;
+  }
+  
+  try {
+    // 将 hex 签名转换为 base58
+    const signatureBytes = new Uint8Array(
+      signatureHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+    );
+    const signatureBase58 = base58.encode(signatureBytes);
+    
+    console.log("[extractQuickWalletSolanaSignature] ✓ 解析成功");
+    console.log("  - 签名 (hex):", signatureHex);
+    console.log("  - 签名 (base58):", signatureBase58);
+    console.log("  - 公钥 (hex):", publicKeyHex);
+    
+    return {
+      signatureHex,
+      signatureBase58,
+      publicKeyHex,
+    };
+  } catch (error) {
+    console.error("[extractQuickWalletSolanaSignature] 转换失败:", error);
+    return null;
+  }
+}
+
+/**
+ * 从 Plugin Wallet MCP 返回结果中提取 Solana 签名
+ * 
+ * Plugin Wallet 返回的 signedTransaction 是一个字节数组对象
+ * 
+ * @param data - Plugin Wallet MCP 返回的数据对象
+ * @param options - 可选配置
+ * @returns Base58 编码的签名字符串
+ */
 function extractSolanaSignature(
   data: Record<string, unknown>,
   options?: { 
@@ -700,9 +790,13 @@ export async function createQuickWalletSolanaSigner(
   // 导入所需的函数
   const { address: createAddress } = await import("@solana/addresses");
   const { signatureBytes: createSignatureBytes } = await import("@solana/keys");
+  const { getTransactionEncoder } = await import("@solana/transactions");
   
   // 使用 address 函数创建符合 Address 类型的地址
   const solAddress = createAddress(address);
+  
+  // 创建交易编码器（复用）
+  const transactionEncoder = getTransactionEncoder();
 
   return {
     address: solAddress,
@@ -713,15 +807,14 @@ export async function createQuickWalletSolanaSigner(
       
       for (const transaction of transactions) {
         // 将交易序列化为 Base58 编码（MCP 接口使用 Base58）
-        // 使用 transaction.messageBytes 获取交易字节，然后用 base58 编码
-        // 需要将 ReadonlyUint8Array 转换为 Uint8Array
-        const transactionBase58 = base58.encode(new Uint8Array(transaction.messageBytes));
+        // 参照 getBase64EncodedWireTransaction 的实现
+        const transactionBase58 = getBase58EncodedWireTransaction(transaction, transactionEncoder);
         console.log("[quick-wallet-solana] 交易 Base58 长度:", transactionBase58.length);
 
         // 调用 Quick Wallet MCP 签名 - 使用 walletSignTransaction
         // chain: "SOL", rawUnsignedTransaction: base58 encoded transaction
         const result = await mcp.walletSignTransaction("SOL", {
-          rawUnsignedTransaction: transactionBase58
+          raw_tx: transactionBase58
         });
         
         // 解析返回结果
@@ -752,14 +845,18 @@ export async function createQuickWalletSolanaSigner(
         }
         
         // 从返回结果中提取签名
-        // Quick Wallet 返回格式: { signature: "base58_signature" }
-        const signatureBase58 = extractSolanaSignature(data as Record<string, unknown>);
-        if (!signatureBase58) {
-          throw new Error("签名失败：未返回有效签名");
+        // Quick Wallet 返回格式: 
+        // { signature: "hex_string", publicKey: "hex_string", signedTransaction: "base58_string" }
+        const signatureInfo = extractQuickWalletSolanaSignature(data as Record<string, unknown>);
+        
+        if (!signatureInfo) {
+          throw new Error("签名失败：无法从返回数据中提取签名");
         }
         
-        // 解析签名为字节数组并转换为 SignatureBytes 类型
-        const signatureBytesArray = base58.decode(signatureBase58);
+        console.log("[quick-wallet-solana] 签名提取成功:", signatureInfo.signatureBase58);
+        
+        // 将 Base58 签名转换为 SignatureBytes
+        const signatureBytesArray = base58.decode(signatureInfo.signatureBase58);
         const signature = createSignatureBytes(signatureBytesArray);
         
         // 构建签名字典：{ [publicKey]: signature }

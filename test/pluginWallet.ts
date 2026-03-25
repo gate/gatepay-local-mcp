@@ -31,7 +31,7 @@ const DEFAULT_PLUGIN_WALLET_URL =
 const REQUEST = {
   url: "http://localhost:8080/flight/order",
   method: "POST" as const,
-  body: '{"flightId":"FL002","uid":"100"}',
+  body: '{"flightId":"FL002","uid":"100","chain":"SOL","fullCurrType":"USDC_SOL"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {
