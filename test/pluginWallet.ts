@@ -26,12 +26,12 @@ config({ path: join(packageRoot, ".env") });
 //   "https://walletmcp.gate.com/mcp?token=jthhYcGXBwrDcFLwgKRdj";
 //"https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73"
 const DEFAULT_PLUGIN_WALLET_URL =
-  "https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73";
+  "https://walletmcp.gate.com/mcp?token=jthhYcGXBwrDcFLwgKRdj";
 
 const REQUEST = {
   url: "http://localhost:8080/flight/order",
   method: "POST" as const,
-  body: '{"flightId":"FL002","uid":"100"}',
+  body: '{"flightId":"FL002","uid":"100","chain":"SOL","fullCurrType":"USDC_SOL"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {
