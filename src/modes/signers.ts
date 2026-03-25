@@ -763,14 +763,11 @@ export const createSignerFromMcpWallet = createQuickWalletSigner;
  * - 需要用户通过 OAuth (Google/Gate) 登录并获得 mcp_token
  * - 完全托管，用户无需管理私钥
  * 
- * 注意：本函数逻辑照搬 createQuickWalletSigner，仅将 "EVM" 替换为 "SOL"
- * TODO: 需要根据 Solana 实际签名流程调整以下部分
  */
 export async function createQuickWalletSolanaSigner(
   mcp: GateMcpClient,
   options?: { solAddress?: string },
 ): Promise<ClientSvmSigner> {
-  // TODO: 需要调整 - Solana 地址格式不同，需要使用 @solana/addresses 的 address() 函数
   let address: string; // 临时使用 string，实际应该是 Address 类型
   if (options?.solAddress) {
     address = options.solAddress;

@@ -125,17 +125,16 @@ export class QuickWalletMode implements SignModeDefinition {
       context,
     );
 
-    // todo 待回复
-    // if (authPhase === "login_succeeded") {
-    //   const addresses = await getQuickWalletAddressPayload(mcp);
-    //   throw new Error(
-    //     [
-    //       "quick_wallet 登录成功。",
-    //       `钱包地址信息：${JSON.stringify(addresses, null, 2)}`,
-    //       "如果你想继续用这个接口进行支付，请回复yes",
-    //     ].join("\n"),
-    //   );
-    // }
+    if (authPhase === "login_succeeded") {
+      const addresses = await getQuickWalletAddressPayload(mcp);
+      throw new Error(
+        [
+          "quick_wallet 登录成功。",
+          `钱包地址信息：${JSON.stringify(addresses, null, 2)}`,
+          "如果你想继续用这个接口进行支付，请回复yes",
+        ].join("\n"),
+      );
+    }
 
     // 解析 EVM 签名器
     const evmSigner = await createQuickWalletSigner(mcp);
