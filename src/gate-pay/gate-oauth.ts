@@ -1,6 +1,6 @@
 /**
- * Gate 本地回调 OAuth — 实现位于 `./device-flow.js`（浏览器授权 → localhost 回调 → 远程换 token）。
- * 本文件仅重新导出类型与 `GateOAuth`，供单独使用或兼容旧 import。
+ * Gate 本地回调 OAuth — 公共 API 由 `./device-flow.js` 聚合导出（实现拆至 oauth-*.ts / gate-oauth-*.ts）。
+ * 本文件重新导出，供单独使用或兼容旧 import。
  */
 
 export {
