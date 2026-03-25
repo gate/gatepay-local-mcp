@@ -183,6 +183,15 @@ export abstract class BaseLocalOAuth<C extends BaseOAuthConfig> {
       throw new Error("No access_token in response");
     }
     const ttlSec = data.expires_in ?? data.expired_in ?? 3600;
+    const refreshToken =
+      typeof data.refresh_token === "string" && data.refresh_token
+        ? data.refresh_token
+        : undefined;
+    const rti = data.refresh_token_expires_in;
+    const refreshTokenExpiresAt =
+      typeof rti === "number" && rti > 0
+        ? Date.now() + rti * 1000
+        : undefined;
     return {
       accessToken,
       tokenType: data.token_type ?? "Bearer",
@@ -190,6 +199,10 @@ export abstract class BaseLocalOAuth<C extends BaseOAuthConfig> {
       expiresAt: Date.now() + ttlSec * 1000,
       userId: data.user_id ?? (data.uid != null ? String(data.uid) : ""),
       walletAddress: data.wallet_address,
+      ...(refreshToken !== undefined ? { refreshToken } : {}),
+      ...(refreshTokenExpiresAt !== undefined
+        ? { refreshTokenExpiresAt }
+        : {}),
     };
   }
 

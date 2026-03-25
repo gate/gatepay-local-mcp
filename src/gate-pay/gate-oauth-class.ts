@@ -23,6 +23,7 @@ export class GateOAuth extends BaseLocalOAuth<GateOAuthConfig> {
       gateAuthEndpoint: this.config.gateAuthEndpoint,
       accountAuthorizeEndpoint: this.config.accountAuthorizeEndpoint,
       oauthTokenEndpoint: this.config.oauthTokenEndpoint,
+      oauthRefreshEndpoint: this.config.oauthRefreshEndpoint,
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,
       scope: this.config.scope,
@@ -199,7 +200,72 @@ export class GateOAuth extends BaseLocalOAuth<GateOAuthConfig> {
       expiresAt: tok.expiresAt,
       userId: tok.userId,
       walletAddress: tok.walletAddress,
+      refreshToken: tok.refreshToken ? "(已返回)" : undefined,
     });
     return tok;
+  }
+
+  /**
+   * POST refresh_token + client_secret 换取新的 access_token（与 curl 示例一致：form-urlencoded）。
+   */
+  async refreshAccessToken(refreshToken: string): Promise<OAuthToken> {
+    const clientSecret = this.config.clientSecret;
+    if (!clientSecret) {
+      throw new Error(
+        "Gate Pay OAuth: 请设置环境变量 GATE_PAY_OAUTH_CLIENT_SECRET（或构造参数 clientSecret）以刷新 access_token",
+      );
+    }
+    const url = this.config.oauthRefreshEndpoint;
+    logGatePayOAuth("刷新 token: 请求（全量）", {
+      method: "POST",
+      url,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: {
+        refresh_token: refreshToken,
+        client_secret: clientSecret,
+      },
+    });
+    const body = new URLSearchParams({
+      refresh_token: refreshToken,
+      client_secret: clientSecret,
+    });
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    logGatePayOAuth("刷新 token: HTTP 状态（全量）", {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      url: res.url,
+    });
+    let raw: unknown;
+    try {
+      raw = await res.json();
+    } catch {
+      throw new Error(
+        `Token refresh: response is not JSON (${res.status} ${res.statusText})`,
+      );
+    }
+    logGatePayOAuth("刷新 token: 响应 JSON（全量）", raw);
+    if (!res.ok) {
+      throw new Error(
+        `Token refresh failed: ${res.status} ${res.statusText} ${JSON.stringify(raw)}`,
+      );
+    }
+    const tok = this.parseTokenResponse(normalizeGateTokenEnvelope(raw));
+    const nextRefresh = tok.refreshToken ?? refreshToken;
+    const merged: OAuthToken = { ...tok, refreshToken: nextRefresh };
+    logGatePayOAuth("刷新 token: 解析后 token 对象（全量）", {
+      accessToken: merged.accessToken,
+      tokenType: merged.tokenType,
+      expiresIn: merged.expiresIn,
+      expiresAt: merged.expiresAt,
+      userId: merged.userId,
+      walletAddress: merged.walletAddress,
+      refreshToken: "(已保留或更新)",
+    });
+    return merged;
   }
 }
