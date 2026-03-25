@@ -4,7 +4,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const MCP_URL = "https://walletmcp-test.gateweb3.cc/mcp?token=Z_GWbn9TMAnWBH0Fj3M73";
+const MCP_URL = "https://api.gatemcp.ai/mcp/dex?token=MCP_AK_8W2N7Q";
 
 async function main() {
   const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));

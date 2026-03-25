@@ -30,6 +30,7 @@ import { getMcpClient, getMcpClientSync } from "./wallets/wallet-mcp-clients.js"
 import type { PaymentRequired, PaymentPayload } from "./x402/types.js";
 import { X402ClientStandalone } from "./x402/client.js";
 import { ExactEvmScheme } from "./x402/exactEvmScheme.js";
+import { ExactSvmScheme } from "./x402/exactSvmScheme.js";
 import { 
   decodePaymentRequiredHeader, 
   encodePaymentSignatureHeader,
@@ -605,11 +606,28 @@ async function handleSignPayment(
     const signerSession = await selectedMode.mode.resolveSigner({ walletLoginProvider });
     
     const client = new X402ClientStandalone();
-    const scheme = new ExactEvmScheme(signerSession.signer);
     
-    // 注册所有网络
-    for (const network of SUPPORTED_NETWORKS) {
-      client.register(network, scheme);
+    // Register EVM networks
+    if (signerSession.signer) {
+      const evmScheme = new ExactEvmScheme(signerSession.signer);
+      for (const network of SUPPORTED_NETWORKS) {
+        client.register(network, evmScheme);
+      }
+    }
+    
+    // Register Solana networks if solanaSigner is available
+    if (signerSession.solanaSigner) {
+      const solanaNetworks = [
+        { name: "solana", rpcUrl: "https://api.mainnet-beta.solana.com" },
+        { name: "solana-devnet", rpcUrl: "https://api.devnet.solana.com" },
+      ];
+      
+      for (const network of solanaNetworks) {
+        const svmScheme = new ExactSvmScheme(signerSession.solanaSigner, {
+          rpcUrl: network.rpcUrl,
+        });
+        client.register(network.name, svmScheme);
+      }
     }
     
     let paymentPayload: PaymentPayload;
@@ -692,10 +710,28 @@ async function handleCreateSignature(
     const signerSession = await selectedMode.mode.resolveSigner({ walletLoginProvider });
     
     const client = new X402ClientStandalone();
-    const scheme = new ExactEvmScheme(signerSession.signer);
     
-    for (const network of SUPPORTED_NETWORKS) {
-      client.register(network, scheme);
+    // Register EVM networks
+    if (signerSession.signer) {
+      const evmScheme = new ExactEvmScheme(signerSession.signer);
+      for (const network of SUPPORTED_NETWORKS) {
+        client.register(network, evmScheme);
+      }
+    }
+    
+    // Register Solana networks if solanaSigner is available
+    if (signerSession.solanaSigner) {
+      const solanaNetworks = [
+        { name: "solana", rpcUrl: "https://api.mainnet-beta.solana.com" },
+        { name: "solana-devnet", rpcUrl: "https://api.devnet.solana.com" },
+      ];
+      
+      for (const network of solanaNetworks) {
+        const svmScheme = new ExactSvmScheme(signerSession.solanaSigner, {
+          rpcUrl: network.rpcUrl,
+        });
+        client.register(network.name, svmScheme);
+      }
     }
     
     let paymentPayload: PaymentPayload;

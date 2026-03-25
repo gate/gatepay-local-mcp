@@ -11,6 +11,16 @@ export interface PluginWalletClient {
   signMessage(message: string, address: string): Promise<unknown>;
   /** 切换钱包当前连接的区块链网络 */
   switchChain(chainId: string): Promise<unknown>;
+  
+  // Solana 相关方法
+  /** 连接 Solana 钱包账户，获取用户授权和公钥地址 */
+  solConnectWallet(): Promise<unknown>;
+  /** 获取当前已连接的 Solana 钱包账户地址 */
+  solGetAccounts(): Promise<unknown>;
+  /** 使用 Solana 钱包对消息进行签名 */
+  solSignMessage(message: string, authPayload: string): Promise<unknown>;
+  /** 对一笔 Solana 交易进行签名（不发送） */
+  solSignTransaction(transaction: string): Promise<unknown>;
 }
 
 export interface PluginWalletClientConfig {
@@ -111,6 +121,27 @@ class BrowserWalletMcpClient implements PluginWalletClient {
   async switchChain(chainId: string): Promise<unknown> {
     return this.callTool("switch_chain", {
       chainId,
+    });
+  }
+
+  async solConnectWallet(): Promise<unknown> {
+    return this.callTool("sol_connect_wallet");
+  }
+
+  async solGetAccounts(): Promise<unknown> {
+    return this.callTool("sol_get_accounts");
+  }
+
+  async solSignMessage(message: string, authPayload: string): Promise<unknown> {
+    return this.callTool("sol_sign_message", {
+      message,
+      authPayload,
+    });
+  }
+
+  async solSignTransaction(transaction: string): Promise<unknown> {
+    return this.callTool("sol_sign_transaction", {
+      transaction,
     });
   }
 
