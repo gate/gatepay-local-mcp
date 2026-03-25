@@ -41,12 +41,14 @@ export function wrapFetchWithPayment(
 
     let paymentPayload: PaymentPayload;
     try {
+      console.error("paymentRequired", paymentRequired);
       paymentPayload = await client.createPaymentPayload(paymentRequired);
     } catch (error) {
       throw new Error(
         `Failed to create payment payload: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
+    console.error("paymentPayload finish:", paymentPayload);
 
     if (
       clonedRequest.headers.has("PAYMENT-SIGNATURE") ||

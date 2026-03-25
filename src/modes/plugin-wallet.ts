@@ -10,15 +10,45 @@ import type {
   SignModeAvailability,
   SignModeDefinition,
 } from "./types.js";
+import type { ClientEvmSigner } from "../x402/types.js";
+
+/** 未解析 EVM 时的占位签名器；调用 signTypedData / signDigest 会抛错 */
+function createDisabledPluginEvmSigner(): ClientEvmSigner {
+  const disabled = (): Promise<`0x${string}`> =>
+    Promise.reject(
+      new Error(
+        "plugin_wallet: EVM 签名器已禁用（resolveEvmSigner 未使用），请使用 solanaSigner 或恢复 EVM 解析",
+      ),
+    );
+  return {
+    address: "0x0000000000000000000000000000000000000000",
+    signTypedData: disabled,
+    signDigest: disabled,
+  };
+}
 
 export interface PluginWalletModeOptions {
   serverUrl?: string;
   clientFactory?: (serverUrl: string) => Promise<PluginWalletClient>;
 }
 
+interface EvmConnectCache {
+  connectResult: unknown;
+}
+
+interface SolanaConnectCache {
+  connectResult: unknown;
+}
+
 export class PluginWalletMode implements SignModeDefinition {
   readonly id = "plugin_wallet" as const;
   readonly priority = 30;
+  
+  // EVM 连接结果缓存，避免重复弹窗
+  private evmConnectCache: Map<string, EvmConnectCache> = new Map();
+  
+  // Solana 连接结果缓存，避免重复弹窗
+  private solanaConnectCache: Map<string, SolanaConnectCache> = new Map();
 
   constructor(private readonly options: PluginWalletModeOptions = {}) {}
 
@@ -35,7 +65,7 @@ export class PluginWalletMode implements SignModeDefinition {
     try {
       const client = await this.getClient(serverUrl);
       const statusResult = await client.walletStatus();
-      console.log('statusResult', statusResult);
+      console.error('statusResult', statusResult);
       const statusData = parseToolResult<Record<string, unknown>>(statusResult);
       if (isPluginWalletConnected(statusData)) {
         return {
@@ -64,32 +94,194 @@ export class PluginWalletMode implements SignModeDefinition {
 
     const client = await this.getClient(serverUrl);
     
-    // 每次都调用 connect_wallet 来唤醒浏览器插件，确保插件处于活跃状态
-    const connectResult = await client.connectWallet();
-    console.log("connectResult", connectResult);
+    // 尝试解析 EVM 签名器
+    let evmSigner: { signer: ReturnType<typeof createPluginWalletSigner>; address: `0x${string}` } | null = null;
+    let evmError: Error | null = null;
+    try {
+      evmSigner = await this.resolveEvmSigner(client);
+      console.error('✓ 成功连接 EVM 钱包');
+    } catch (error) {
+      evmError = error instanceof Error ? error : new Error(String(error));
+      console.warn('⚠️  EVM 钱包连接失败:', evmError.message);
+    }
     
-    // 检查 MCP 返回的 isError 标志
-    if (connectResult && typeof connectResult === "object" && "isError" in connectResult) {
-      const mcpResult = connectResult as { isError?: boolean; content?: unknown[] };
-      if (mcpResult.isError) {
-        const data = parseToolResult<Record<string, unknown>>(connectResult);
-        const errorMsg = data?.error;
-        if (typeof errorMsg === "string") {
-          // 用户拒绝连接
-          if (errorMsg.includes("拒绝") || errorMsg.includes("reject")) {
-            throw new Error(`无法连接浏览器钱包：${errorMsg}`);
+    // 尝试解析 Solana 签名器
+    let solanaSigner: Awaited<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner>> | undefined;
+    let solanaError: Error | null = null;
+    try {
+      solanaSigner = await this.resolveSolanaSigner(client);
+      if (solanaSigner) {
+        console.error('✓ 成功连接 Solana 钱包');
+      }
+    } catch (error) {
+      solanaError = error instanceof Error ? error : new Error(String(error));
+      console.warn('⚠️  Solana 钱包连接失败:', solanaError.message);
+    }
+
+    // 检查是否至少有一个钱包连接成功
+    if (!evmSigner && !solanaSigner) {
+      // 都失败了，检查是否是用户主动拒绝
+      const isUserRejection = 
+        (evmError?.message.includes("拒绝") || evmError?.message.includes("reject")) ||
+        (solanaError?.message.includes("拒绝") || solanaError?.message.includes("reject"));
+      
+      if (isUserRejection) {
+        throw new Error("用户取消了钱包连接");
+      }
+      
+      // 组合错误信息
+      const errors: string[] = [];
+      if (evmError) errors.push(`EVM: ${evmError.message}`);
+      if (solanaError) errors.push(`Solana: ${solanaError.message}`);
+      throw new Error(`无法连接任何钱包。${errors.join("; ")}`);
+    }
+
+    // 至少有一个钱包连接成功，返回结果
+    return {
+      signer: evmSigner 
+        ? createPluginWalletSigner(client, evmSigner.address)
+        : createPluginWalletSigner(client, createDisabledPluginEvmSigner().address),
+      solanaSigner,
+    };
+  }
+
+  /**
+   * 解析 EVM 签名器
+   */
+  private async resolveEvmSigner(
+    client: PluginWalletClient,
+  ): Promise<{ signer: ReturnType<typeof createPluginWalletSigner>; address: `0x${string}` }> {
+    // 先尝试从缓存中获取已连接的地址
+    let connectResult: unknown;
+    let cachedAddress: `0x${string}` | undefined;
+    
+    // 检查是否有任何缓存的连接
+    for (const [addr, cache] of this.evmConnectCache.entries()) {
+      cachedAddress = addr as `0x${string}`;
+      connectResult = cache.connectResult;
+      console.error('✓ 使用缓存的 EVM 连接结果');
+      break; // 只使用第一个缓存（通常只有一个）
+    }
+    
+    // 如果没有缓存，调用 connect_wallet
+    if (!connectResult) {
+      console.error('调用 connect_wallet 获取 EVM 授权');
+      connectResult = await client.connectWallet();
+      console.error("connectResult", connectResult);
+      
+      // 检查 MCP 返回的 isError 标志
+      if (connectResult && typeof connectResult === "object" && "isError" in connectResult) {
+        const mcpResult = connectResult as { isError?: boolean; content?: unknown[] };
+        if (mcpResult.isError) {
+          const data = parseToolResult<Record<string, unknown>>(connectResult);
+          const errorMsg = data?.error;
+          if (typeof errorMsg === "string") {
+            // 用户拒绝连接
+            if (errorMsg.includes("拒绝") || errorMsg.includes("reject")) {
+              throw new Error(`无法连接浏览器钱包：${errorMsg}`);
+            }
+            throw new Error(`连接浏览器钱包失败：${errorMsg}`);
           }
-          throw new Error(`连接浏览器钱包失败：${errorMsg}`);
+          throw new Error("连接浏览器钱包失败：未知错误");
         }
-        throw new Error("连接浏览器钱包失败：未知错误");
       }
     }
     
+    // 解析地址
     const address = await this.resolveAddress(client, connectResult);
+    
+    // 检查地址是否变化
+    if (cachedAddress && cachedAddress !== address) {
+      console.error('⚠️  检测到 EVM 地址变化，清空所有缓存');
+      this.evmConnectCache.clear();
+      this.solanaConnectCache.clear();
+    }
+    
+    // 保存缓存
+    this.evmConnectCache.set(address, { connectResult });
+    console.error('✓ EVM 连接结果已缓存');
+    
+    const signer = createPluginWalletSigner(client, address);
 
-    return {
-      signer: createPluginWalletSigner(client, address),
-    };
+    return { signer, address };
+  }
+
+  /**
+   * 解析 Solana 签名器
+   * @throws 如果连接失败或用户拒绝
+   */
+  private async resolveSolanaSigner(
+    client: PluginWalletClient,
+  ): Promise<Awaited<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner>> | undefined> {
+    // 先尝试从缓存中获取已连接的地址和结果
+    let solConnectResult: unknown;
+    let cachedAddress: string | undefined;
+    
+    // 检查是否有任何缓存的连接
+    for (const [addr, cache] of this.solanaConnectCache.entries()) {
+      cachedAddress = addr;
+      solConnectResult = cache.connectResult;
+      console.error('✓ 使用缓存的 Solana 连接结果');
+      break; // 只使用第一个缓存（通常只有一个）
+    }
+    
+    // 如果没有缓存，调用 sol_connect_wallet
+    if (!solConnectResult) {
+      console.error('调用 sol_connect_wallet 获取 Solana 授权');
+      try {
+        solConnectResult = await client.solConnectWallet();
+        console.error('solConnectWallet result:', solConnectResult);
+      } catch (error) {
+        // 清空缓存
+        this.solanaConnectCache.clear();
+        throw error;
+      }
+      
+      // 检查 MCP 返回的 isError 标志
+      if (solConnectResult && typeof solConnectResult === "object" && "isError" in solConnectResult) {
+        const mcpResult = solConnectResult as { isError?: boolean; content?: unknown[] };
+        if (mcpResult.isError) {
+          this.solanaConnectCache.clear();
+          const data = parseToolResult<Record<string, unknown>>(solConnectResult);
+          const errorMsg = data?.error;
+          if (typeof errorMsg === "string") {
+            // 用户拒绝 Solana 连接
+            if (errorMsg.includes("拒绝") || errorMsg.includes("reject")) {
+              throw new Error(`用户拒绝了 Solana 连接：${errorMsg}`);
+            }
+            throw new Error(`Solana 连接失败：${errorMsg}`);
+          }
+          throw new Error("Solana 连接失败：未知错误");
+        }
+      }
+    }
+    
+    // 获取 Solana 地址
+    const solanaAddress = await this.resolveSolanaAddress(client, solConnectResult);
+    console.error('resolveSolanaAddress:', solanaAddress);
+    
+    if (!solanaAddress) {
+      this.solanaConnectCache.clear();
+      throw new Error('未获取到 Solana 地址');
+    }
+
+    // 检查地址是否变化
+    if (cachedAddress && cachedAddress !== solanaAddress) {
+      console.error('⚠️  检测到 Solana 地址变化，清空 Solana 缓存');
+      this.solanaConnectCache.clear();
+      // 地址变化了，需要重新连接
+      throw new Error('Solana 地址已变化，需要重新连接');
+    }
+
+    // 创建 Solana 签名器
+    const { createPluginWalletSolanaSigner } = await import("./signers.js");
+    const solanaSigner = await createPluginWalletSolanaSigner(client, solanaAddress);
+    
+    // 签名器创建成功，保存缓存（使用 Solana 地址作为 key）
+    this.solanaConnectCache.set(solanaAddress, { connectResult: solConnectResult });
+    console.error('✓ Solana 连接结果已缓存');
+
+    return solanaSigner;
   }
 
   getCacheKey(): string {
@@ -134,6 +326,32 @@ export class PluginWalletMode implements SignModeDefinition {
     const hint = getExtensionHint(connectData) ?? getExtensionHint(accountsData)
       ?? "请先在浏览器中打开 Gate Wallet 扩展并连接，或打开与插件钱包同会话的页面后再重试。";
     throw new Error(`plugin_wallet 未获取到 EVM 地址。${hint}`);
+  }
+
+  private async resolveSolanaAddress(
+    client: PluginWalletClient,
+    connectResult: unknown,
+  ): Promise<string | null> {
+    // 首先尝试从 connectResult 中提取
+    const connectData = parseToolResult<Record<string, unknown>>(connectResult);
+    const connectedAddress = extractSolanaAddress(connectData);
+    if (connectedAddress) {
+      return connectedAddress;
+    }
+
+    // 如果 connectResult 中没有，调用 sol_get_accounts 获取
+    try {
+      const accountsResult = await client.solGetAccounts();
+      const accountsData = parseToolResult<Record<string, unknown>>(accountsResult);
+      const accountAddress = extractSolanaAddress(accountsData);
+      if (accountAddress) {
+        return accountAddress;
+      }
+    } catch (error) {
+      console.warn("⚠️  调用 sol_get_accounts 失败:", error);
+    }
+
+    return null;
   }
 }
 
@@ -210,6 +428,40 @@ function extractEvmAddress(data: Record<string, unknown> | null): `0x${string}` 
   for (const candidate of candidates) {
     if (typeof candidate === "string" && /^0x[a-fA-F0-9]{40}$/.test(candidate)) {
       return candidate as `0x${string}`;
+    }
+  }
+
+  return null;
+}
+
+function extractSolanaAddress(data: Record<string, unknown> | null): string | null {
+  if (!data) {
+    return null;
+  }
+
+  
+  // 首先检查 account 字段（插件钱包的常见返回格式）
+  if (typeof data.account === "string" && data.account.length > 0) {
+    return data.account;
+  }
+
+  // Solana 地址通常在 solanaAddress 或 solana 字段
+  if (typeof data.solanaAddress === "string" && data.solanaAddress.length > 0) {
+    return data.solanaAddress;
+  }
+
+  if (typeof data.solana === "string" && data.solana.length > 0) {
+    return data.solana;
+  }
+
+  // 检查 addresses 对象中的 Solana 地址
+  if (data.addresses && typeof data.addresses === "object") {
+    const addresses = data.addresses as Record<string, unknown>;
+    if (typeof addresses.solana === "string" && addresses.solana.length > 0) {
+      return addresses.solana;
+    }
+    if (typeof addresses.SOL === "string" && addresses.SOL.length > 0) {
+      return addresses.SOL;
     }
   }
 
