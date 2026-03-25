@@ -14,7 +14,10 @@ const SUPPORTED_EVM_NETWORKS = [
   "Arbitrum One",
 ] as const;
 
-const SUPPORTED_SOLANA_NETWORKS = ["solana","solana-devnet"] as const;
+const SUPPORTED_SOLANA_NETWORKS = [
+  { name: "solana", rpcUrl: "https://api.mainnet-beta.solana.com" },
+  { name: "solana-devnet", rpcUrl: "https://api.devnet.solana.com" },
+] as const;
 
 export class DefaultPayFetchFactory implements PayFetchFactory {
   build(config: {
@@ -22,7 +25,6 @@ export class DefaultPayFetchFactory implements PayFetchFactory {
     solanaSigner?: import("../x402/types.js").ClientSvmSigner;
   }): typeof fetch {
     const client = new X402ClientStandalone();
-    console.log('signer config', config);
 
     // Register EVM networks
     if (config.signer) {
@@ -31,10 +33,12 @@ export class DefaultPayFetchFactory implements PayFetchFactory {
       }
     }
 
-    // Register Solana networks
+    // Register Solana networks with appropriate RPC URLs
     if (config.solanaSigner) {
       for (const network of SUPPORTED_SOLANA_NETWORKS) {
-        client.register(network, new ExactSvmScheme(config.solanaSigner));
+        client.register(network.name, new ExactSvmScheme(config.solanaSigner, {
+          rpcUrl: network.rpcUrl,
+        }));
       }
     }
 

@@ -125,16 +125,17 @@ export class QuickWalletMode implements SignModeDefinition {
       context,
     );
 
-    if (authPhase === "login_succeeded") {
-      const addresses = await getQuickWalletAddressPayload(mcp);
-      throw new Error(
-        [
-          "quick_wallet 登录成功。",
-          `钱包地址信息：${JSON.stringify(addresses, null, 2)}`,
-          "如果你想继续用这个接口进行支付，请回复yes",
-        ].join("\n"),
-      );
-    }
+    // todo 待回复
+    // if (authPhase === "login_succeeded") {
+    //   const addresses = await getQuickWalletAddressPayload(mcp);
+    //   throw new Error(
+    //     [
+    //       "quick_wallet 登录成功。",
+    //       `钱包地址信息：${JSON.stringify(addresses, null, 2)}`,
+    //       "如果你想继续用这个接口进行支付，请回复yes",
+    //     ].join("\n"),
+    //   );
+    // }
 
     // 解析 EVM 签名器
     const evmSigner = await createQuickWalletSigner(mcp);
@@ -142,6 +143,7 @@ export class QuickWalletMode implements SignModeDefinition {
     // 解析 Solana 签名器（可选，失败不影响 EVM）
     let solanaSigner = undefined;
     try {
+      console.log("createQuickWalletSolanaSigner mcp", mcp);
       solanaSigner = await createQuickWalletSolanaSigner(mcp);
     } catch (error) {
       console.warn("⚠️  未能创建 Solana 签名器:", error);

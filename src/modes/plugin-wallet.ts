@@ -10,6 +10,22 @@ import type {
   SignModeAvailability,
   SignModeDefinition,
 } from "./types.js";
+import type { ClientEvmSigner } from "../x402/types.js";
+
+/** 未解析 EVM 时的占位签名器；调用 signTypedData / signDigest 会抛错 */
+function createDisabledPluginEvmSigner(): ClientEvmSigner {
+  const disabled = (): Promise<`0x${string}`> =>
+    Promise.reject(
+      new Error(
+        "plugin_wallet: EVM 签名器已禁用（resolveEvmSigner 未使用），请使用 solanaSigner 或恢复 EVM 解析",
+      ),
+    );
+  return {
+    address: "0x0000000000000000000000000000000000000000",
+    signTypedData: disabled,
+    signDigest: disabled,
+  };
+}
 
 export interface PluginWalletModeOptions {
   serverUrl?: string;
@@ -85,7 +101,7 @@ export class PluginWalletMode implements SignModeDefinition {
     const solanaSigner = await this.resolveSolanaSigner(client);
 
     return {
-      signer: evmSigner.signer,
+      signer: createPluginWalletSigner(client, evmSigner.address),
       solanaSigner,
     };
   }

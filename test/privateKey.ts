@@ -22,7 +22,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 config({ path: join(packageRoot, ".env") });
 
-const baseURL = process.env.RESOURCE_SERVER_URL || "https://dev.halftrust.xyz/pay-disputemanagement";
+const baseURL = process.env.RESOURCE_SERVER_URL || "http://localhost:8080";
 const endpointPath = process.env.ENDPOINT_PATH || "/flight/order";
 
 const REQUEST = {

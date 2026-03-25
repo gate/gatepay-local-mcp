@@ -29,8 +29,14 @@ export class ExactSvmScheme implements SchemeNetworkClient {
     signer: ClientSvmSigner,
     config?: { rpcUrl?: string },
   ) {
+    // 如果未提供 rpcUrl，使用 Solana 主网默认 RPC
+    const defaultRpcUrl = "https://api.mainnet-beta.solana.com";
+    const rpcUrl = config?.rpcUrl ?? defaultRpcUrl;
+    
+    console.log(`[ExactSvmScheme] 使用 RPC URL: ${rpcUrl}`);
+    
     // 直接使用官方的 ExactSvmScheme 实现
-    this.officialScheme = new OfficialExactSvmScheme(signer, config);
+    this.officialScheme = new OfficialExactSvmScheme(signer, { rpcUrl });
   }
 
   async createPaymentPayload(
