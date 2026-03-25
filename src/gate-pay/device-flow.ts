@@ -3,6 +3,7 @@
  *
  * 可选环境变量（覆盖默认测试环境）：
  *   GATE_PAY_OAUTH_TOKEN_URL       — 换 token 的完整 POST 地址（默认 dev 内网 token 路径）
+ *   GATE_PAY_OAUTH_REFRESH_URL     — 刷新 token 的完整 POST 地址（未设时由 token URL 推导 …/refresh）
  *   GATE_PAY_OAUTH_TOKEN_BASE_URL  — 仅设置 origin 时，换 token 路径为 …/oauth2/oauth/internal/api/token
  *   GATE_PAY_OAUTH_MCP_SERVER_URL  — 同上，旧名，仍兼容
  *   GATE_PAY_OAUTH_CLIENT_SECRET   — authorization_code 换 token 必填（form 字段 client_secret）
@@ -32,7 +33,12 @@ async function loginWithGatePayOAuthRedirect(): Promise<GatePayDeviceFlowResult>
       accessToken: token.accessToken,
       expiresAtMs: token.expiresAt,
     });
-    setGatePayAccessToken(token.accessToken, token.expiresAt);
+    setGatePayAccessToken(
+      token.accessToken,
+      token.expiresAt,
+      token.refreshToken,
+      token.refreshTokenExpiresAt,
+    );
     console.error("[Gate Pay] Authorized; access_token stored.");
     if (token.userId) console.error(`[Gate Pay] user_id: ${token.userId}`);
     if (token.walletAddress) {

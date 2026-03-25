@@ -1,12 +1,18 @@
-import { getGatePayAccessToken, isGatePayTokenUsable } from "./pay-token-store.js";
+import {
+  ensureGatePayAccessTokenFresh,
+  getGatePayAccessToken,
+  isGatePayTokenUsable,
+} from "./pay-token-store.js";
 import { loginWithGatePayDeviceFlow } from "./device-flow.js";
 
 export type GatePayAuthPhase = "already_authenticated" | "login_succeeded";
 
 /**
- * 若进程内已有有效 Gate Pay access_token 则跳过；否则走浏览器 OAuth（localhost 回调 + 远程换 token）。
+ * 若进程内已有有效 Gate Pay access_token（含临近过期时用 refresh_token 刷新）则跳过；
+ * 否则走浏览器 OAuth（localhost 回调 + 远程换 token）。
  */
 export async function runGatePayDeviceAuthIfNeeded(): Promise<GatePayAuthPhase> {
+  await ensureGatePayAccessTokenFresh();
   if (isGatePayTokenUsable()) {
     return "already_authenticated";
   }

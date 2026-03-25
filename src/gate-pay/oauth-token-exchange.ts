@@ -1,5 +1,6 @@
 export interface TokenExchangeResponse {
   access_token?: string;
+  refresh_token?: string;
   token_type?: string;
   expires_in?: number;
   /** 部分后端字段名为 expired_in */
@@ -7,6 +8,8 @@ export interface TokenExchangeResponse {
   user_id?: string;
   uid?: number;
   wallet_address?: string;
+  /** 刷新接口等可能返回，单位：秒（自返回时刻起 refresh_token 剩余有效期） */
+  refresh_token_expires_in?: number;
   error?: string;
 }
 
@@ -33,11 +36,20 @@ export function normalizeGateTokenEnvelope(raw: unknown): TokenExchangeResponse 
           ? d.expired_in
           : undefined;
     const uid = d.uid;
+    const refresh_token_expires_in =
+      typeof d.refresh_token_expires_in === "number"
+        ? d.refresh_token_expires_in
+        : typeof d.refresh_token_expired_in === "number"
+          ? d.refresh_token_expired_in
+          : undefined;
     return {
       access_token:
         typeof d.access_token === "string" ? d.access_token : undefined,
+      refresh_token:
+        typeof d.refresh_token === "string" ? d.refresh_token : undefined,
       token_type: typeof d.token_type === "string" ? d.token_type : undefined,
       expires_in,
+      refresh_token_expires_in,
       user_id: uid != null ? String(uid) : undefined,
       error: typeof r.error === "string" ? r.error : undefined,
     };
