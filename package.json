@@ -1,6 +1,6 @@
 {
   "name": "@andesmountain/gatepay-local-mcp",
-  "version": "1.1.1",
+  "version": "1.1.3",
   "description": "Gatepay Local (stdio) MCP server",
   "type": "module",
   "main": "dist/src/index.js",

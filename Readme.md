@@ -145,7 +145,7 @@ The server supports three signing modes with automatic selection:
 
 | `sign_mode`         | Status                                        | Networks    | Description                                                              |
 | ------------------- | --------------------------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `local_private_key` | Ready when `EVM_PRIVATE_KEY` / `SOLANA_PRIVATE_KEY` set | EVM, Solana | Signs locally with your private keys (no external dependencies)          |
+| `local_private_key` | Ready when `EVM_PRIVATE_KEY` / `SVM_PRIVATE_KEY` set | EVM, Solana | Signs locally with your private keys (no external dependencies)          |
 | `quick_wallet`      | Ready after OAuth login                       | EVM, Solana | Custodial MCP wallet with device-flow login (Google/Gate account)        |
 | `plugin_wallet`     | Ready when `PLUGIN_WALLET_TOKEN` set          | EVM, Solana | Browser extension wallet (e.g., Gate Wallet) via MCP bridge              |
 
@@ -175,7 +175,7 @@ This is the simplest setup for local signing with your own private keys:
       "args": ["-y", "gatepay-local-mcp"],
       "env": {
         "EVM_PRIVATE_KEY": "your-evm-private-key-hex-with-or-without-0x-prefix",
-        "SOLANA_PRIVATE_KEY": "your-solana-private-key-base58-optional"
+        "SVM_PRIVATE_KEY": "your-solana-private-key-base58-optional"
       }
     }
   }
@@ -183,7 +183,7 @@ This is the simplest setup for local signing with your own private keys:
 ```
 
 - Set `EVM_PRIVATE_KEY` for EVM network payments (Ethereum, Base, Polygon, etc.)
-- Set `SOLANA_PRIVATE_KEY` for Solana network payments (optional)
+- Set `SVM_PRIVATE_KEY` for Solana network payments (optional)
 - Put this into your MCP config such as `~/.cursor/mcp.json`, then restart or reload MCP
 
 ### 2. Quick Wallet Mode (Custodial)
@@ -240,7 +240,7 @@ The server loads `.env` from the repository or package root at startup.
 | Variable                  | Mode                | Description                                                                 |
 | ------------------------- | ------------------- | --------------------------------------------------------------------------- |
 | `EVM_PRIVATE_KEY`         | `local_private_key` | Local EVM private key; hex with or without `0x` prefix                      |
-| `SOLANA_PRIVATE_KEY`      | `local_private_key` | Local Solana private key; base58 encoded (optional)                         |
+| `SVM_PRIVATE_KEY`      | `local_private_key` | Local Solana private key; base58 encoded (optional)                         |
 | `QUICK_WALLET_MCP_URL`    | `quick_wallet`      | MCP wallet endpoint URL (default: `https://walletmcp.gate.com/mcp`)         |
 | `QUICK_WALLET_API_KEY`    | `quick_wallet`      | API key for MCP wallet service (optional)                                   |
 | `PLUGIN_WALLET_TOKEN`     | `plugin_wallet`     | MCP token from browser extension wallet                                     |
