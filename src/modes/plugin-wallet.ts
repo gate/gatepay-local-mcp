@@ -94,14 +94,53 @@ export class PluginWalletMode implements SignModeDefinition {
 
     const client = await this.getClient(serverUrl);
     
-    // 解析 EVM 签名器
-    const evmSigner = await this.resolveEvmSigner(client);
+    // 尝试解析 EVM 签名器
+    let evmSigner: { signer: ReturnType<typeof createPluginWalletSigner>; address: `0x${string}` } | null = null;
+    let evmError: Error | null = null;
+    try {
+      evmSigner = await this.resolveEvmSigner(client);
+      console.log('✓ 成功连接 EVM 钱包');
+    } catch (error) {
+      evmError = error instanceof Error ? error : new Error(String(error));
+      console.warn('⚠️  EVM 钱包连接失败:', evmError.message);
+    }
     
-    // 解析 Solana 签名器（可选，失败不影响 EVM）
-    const solanaSigner = await this.resolveSolanaSigner(client);
+    // 尝试解析 Solana 签名器
+    let solanaSigner: Awaited<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner>> | undefined;
+    let solanaError: Error | null = null;
+    try {
+      solanaSigner = await this.resolveSolanaSigner(client);
+      if (solanaSigner) {
+        console.log('✓ 成功连接 Solana 钱包');
+      }
+    } catch (error) {
+      solanaError = error instanceof Error ? error : new Error(String(error));
+      console.warn('⚠️  Solana 钱包连接失败:', solanaError.message);
+    }
 
+    // 检查是否至少有一个钱包连接成功
+    if (!evmSigner && !solanaSigner) {
+      // 都失败了，检查是否是用户主动拒绝
+      const isUserRejection = 
+        (evmError?.message.includes("拒绝") || evmError?.message.includes("reject")) ||
+        (solanaError?.message.includes("拒绝") || solanaError?.message.includes("reject"));
+      
+      if (isUserRejection) {
+        throw new Error("用户取消了钱包连接");
+      }
+      
+      // 组合错误信息
+      const errors: string[] = [];
+      if (evmError) errors.push(`EVM: ${evmError.message}`);
+      if (solanaError) errors.push(`Solana: ${solanaError.message}`);
+      throw new Error(`无法连接任何钱包。${errors.join("; ")}`);
+    }
+
+    // 至少有一个钱包连接成功，返回结果
     return {
-      signer: createPluginWalletSigner(client, evmSigner.address),
+      signer: evmSigner 
+        ? createPluginWalletSigner(client, evmSigner.address)
+        : createPluginWalletSigner(client, createDisabledPluginEvmSigner().address),
       solanaSigner,
     };
   }
@@ -168,80 +207,81 @@ export class PluginWalletMode implements SignModeDefinition {
   }
 
   /**
-   * 解析 Solana 签名器（可选，失败不影响 EVM 签名器）
+   * 解析 Solana 签名器
+   * @throws 如果连接失败或用户拒绝
    */
   private async resolveSolanaSigner(
     client: PluginWalletClient,
-  ): Promise<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner> | undefined> {
-    try {
-      // 先尝试从缓存中获取已连接的地址和结果
-      let solConnectResult: unknown;
-      let cachedAddress: string | undefined;
-      
-      // 检查是否有任何缓存的连接
-      for (const [addr, cache] of this.solanaConnectCache.entries()) {
-        cachedAddress = addr;
-        solConnectResult = cache.connectResult;
-        console.log('✓ 使用缓存的 Solana 连接结果');
-        break; // 只使用第一个缓存（通常只有一个）
-      }
-      
-      // 如果没有缓存，调用 sol_connect_wallet
-      if (!solConnectResult) {
-        console.log('调用 sol_connect_wallet 获取 Solana 授权');
+  ): Promise<Awaited<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner>> | undefined> {
+    // 先尝试从缓存中获取已连接的地址和结果
+    let solConnectResult: unknown;
+    let cachedAddress: string | undefined;
+    
+    // 检查是否有任何缓存的连接
+    for (const [addr, cache] of this.solanaConnectCache.entries()) {
+      cachedAddress = addr;
+      solConnectResult = cache.connectResult;
+      console.log('✓ 使用缓存的 Solana 连接结果');
+      break; // 只使用第一个缓存（通常只有一个）
+    }
+    
+    // 如果没有缓存，调用 sol_connect_wallet
+    if (!solConnectResult) {
+      console.log('调用 sol_connect_wallet 获取 Solana 授权');
+      try {
         solConnectResult = await client.solConnectWallet();
         console.log('solConnectWallet result:', solConnectResult);
-        
-        // 检查 MCP 返回的 isError 标志
-        if (solConnectResult && typeof solConnectResult === "object" && "isError" in solConnectResult) {
-          const mcpResult = solConnectResult as { isError?: boolean; content?: unknown[] };
-          if (mcpResult.isError) {
-            const data = parseToolResult<Record<string, unknown>>(solConnectResult);
-            const errorMsg = data?.error;
-            if (typeof errorMsg === "string") {
-              // 用户拒绝 Solana 连接
-              if (errorMsg.includes("拒绝") || errorMsg.includes("reject")) {
-                throw new Error(`用户拒绝了 Solana 连接：${errorMsg}`);
-              }
-              throw new Error(`Solana 连接失败：${errorMsg}`);
+      } catch (error) {
+        // 清空缓存
+        this.solanaConnectCache.clear();
+        throw error;
+      }
+      
+      // 检查 MCP 返回的 isError 标志
+      if (solConnectResult && typeof solConnectResult === "object" && "isError" in solConnectResult) {
+        const mcpResult = solConnectResult as { isError?: boolean; content?: unknown[] };
+        if (mcpResult.isError) {
+          this.solanaConnectCache.clear();
+          const data = parseToolResult<Record<string, unknown>>(solConnectResult);
+          const errorMsg = data?.error;
+          if (typeof errorMsg === "string") {
+            // 用户拒绝 Solana 连接
+            if (errorMsg.includes("拒绝") || errorMsg.includes("reject")) {
+              throw new Error(`用户拒绝了 Solana 连接：${errorMsg}`);
             }
-            throw new Error("Solana 连接失败：未知错误");
+            throw new Error(`Solana 连接失败：${errorMsg}`);
           }
+          throw new Error("Solana 连接失败：未知错误");
         }
       }
-      
-      // 获取 Solana 地址
-      const solanaAddress = await this.resolveSolanaAddress(client, solConnectResult);
-      console.log('resolveSolanaAddress:', solanaAddress);
-      
-      if (!solanaAddress) {
-        console.log('未获取到 Solana 地址');
-        return undefined;
-      }
-
-      // 检查地址是否变化
-      if (cachedAddress && cachedAddress !== solanaAddress) {
-        console.log('⚠️  检测到 Solana 地址变化，清空 Solana 缓存');
-        this.solanaConnectCache.clear();
-        // 地址变化了，需要重新连接
-        throw new Error('Solana 地址已变化，需要重新连接');
-      }
-
-      // 创建 Solana 签名器
-      const { createPluginWalletSolanaSigner } = await import("./signers.js");
-      const solanaSigner = await createPluginWalletSolanaSigner(client, solanaAddress);
-      
-      // 签名器创建成功，保存缓存（使用 Solana 地址作为 key）
-      this.solanaConnectCache.set(solanaAddress, { connectResult: solConnectResult });
-      console.log('✓ Solana 连接结果已缓存');
-
-      return solanaSigner;
-    } catch (error) {
-      // Solana 地址获取失败或签名器创建失败，清空缓存
-      this.solanaConnectCache.clear();
-      console.warn("⚠️  未能获取 Solana 地址，将仅使用 EVM 签名器:", error);
-      return undefined;
     }
+    
+    // 获取 Solana 地址
+    const solanaAddress = await this.resolveSolanaAddress(client, solConnectResult);
+    console.log('resolveSolanaAddress:', solanaAddress);
+    
+    if (!solanaAddress) {
+      this.solanaConnectCache.clear();
+      throw new Error('未获取到 Solana 地址');
+    }
+
+    // 检查地址是否变化
+    if (cachedAddress && cachedAddress !== solanaAddress) {
+      console.log('⚠️  检测到 Solana 地址变化，清空 Solana 缓存');
+      this.solanaConnectCache.clear();
+      // 地址变化了，需要重新连接
+      throw new Error('Solana 地址已变化，需要重新连接');
+    }
+
+    // 创建 Solana 签名器
+    const { createPluginWalletSolanaSigner } = await import("./signers.js");
+    const solanaSigner = await createPluginWalletSolanaSigner(client, solanaAddress);
+    
+    // 签名器创建成功，保存缓存（使用 Solana 地址作为 key）
+    this.solanaConnectCache.set(solanaAddress, { connectResult: solConnectResult });
+    console.log('✓ Solana 连接结果已缓存');
+
+    return solanaSigner;
   }
 
   getCacheKey(): string {
