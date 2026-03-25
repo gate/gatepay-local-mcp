@@ -26,7 +26,16 @@ importers:
       '@solana-program/token-2022':
         specifier: ^0.9.0
         version: 0.9.0(@solana/kit@6.5.0(typescript@5.9.3))(@solana/sysvars@6.5.0(typescript@5.9.3))
+      '@solana/addresses':
+        specifier: ^6.5.0
+        version: 6.5.0(typescript@5.9.3)
+      '@solana/keys':
+        specifier: ^6.5.0
+        version: 6.5.0(typescript@5.9.3)
       '@solana/kit':
+        specifier: ^6.5.0
+        version: 6.5.0(typescript@5.9.3)
+      '@solana/transactions':
         specifier: ^6.5.0
         version: 6.5.0(typescript@5.9.3)
       '@x402/core':
