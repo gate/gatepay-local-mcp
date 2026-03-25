@@ -65,7 +65,7 @@ export class PluginWalletMode implements SignModeDefinition {
     try {
       const client = await this.getClient(serverUrl);
       const statusResult = await client.walletStatus();
-      console.log('statusResult', statusResult);
+      console.error('statusResult', statusResult);
       const statusData = parseToolResult<Record<string, unknown>>(statusResult);
       if (isPluginWalletConnected(statusData)) {
         return {
@@ -99,7 +99,7 @@ export class PluginWalletMode implements SignModeDefinition {
     let evmError: Error | null = null;
     try {
       evmSigner = await this.resolveEvmSigner(client);
-      console.log('✓ 成功连接 EVM 钱包');
+      console.error('✓ 成功连接 EVM 钱包');
     } catch (error) {
       evmError = error instanceof Error ? error : new Error(String(error));
       console.warn('⚠️  EVM 钱包连接失败:', evmError.message);
@@ -111,7 +111,7 @@ export class PluginWalletMode implements SignModeDefinition {
     try {
       solanaSigner = await this.resolveSolanaSigner(client);
       if (solanaSigner) {
-        console.log('✓ 成功连接 Solana 钱包');
+        console.error('✓ 成功连接 Solana 钱包');
       }
     } catch (error) {
       solanaError = error instanceof Error ? error : new Error(String(error));
@@ -159,15 +159,15 @@ export class PluginWalletMode implements SignModeDefinition {
     for (const [addr, cache] of this.evmConnectCache.entries()) {
       cachedAddress = addr as `0x${string}`;
       connectResult = cache.connectResult;
-      console.log('✓ 使用缓存的 EVM 连接结果');
+      console.error('✓ 使用缓存的 EVM 连接结果');
       break; // 只使用第一个缓存（通常只有一个）
     }
     
     // 如果没有缓存，调用 connect_wallet
     if (!connectResult) {
-      console.log('调用 connect_wallet 获取 EVM 授权');
+      console.error('调用 connect_wallet 获取 EVM 授权');
       connectResult = await client.connectWallet();
-      console.log("connectResult", connectResult);
+      console.error("connectResult", connectResult);
       
       // 检查 MCP 返回的 isError 标志
       if (connectResult && typeof connectResult === "object" && "isError" in connectResult) {
@@ -192,14 +192,14 @@ export class PluginWalletMode implements SignModeDefinition {
     
     // 检查地址是否变化
     if (cachedAddress && cachedAddress !== address) {
-      console.log('⚠️  检测到 EVM 地址变化，清空所有缓存');
+      console.error('⚠️  检测到 EVM 地址变化，清空所有缓存');
       this.evmConnectCache.clear();
       this.solanaConnectCache.clear();
     }
     
     // 保存缓存
     this.evmConnectCache.set(address, { connectResult });
-    console.log('✓ EVM 连接结果已缓存');
+    console.error('✓ EVM 连接结果已缓存');
     
     const signer = createPluginWalletSigner(client, address);
 
@@ -221,16 +221,16 @@ export class PluginWalletMode implements SignModeDefinition {
     for (const [addr, cache] of this.solanaConnectCache.entries()) {
       cachedAddress = addr;
       solConnectResult = cache.connectResult;
-      console.log('✓ 使用缓存的 Solana 连接结果');
+      console.error('✓ 使用缓存的 Solana 连接结果');
       break; // 只使用第一个缓存（通常只有一个）
     }
     
     // 如果没有缓存，调用 sol_connect_wallet
     if (!solConnectResult) {
-      console.log('调用 sol_connect_wallet 获取 Solana 授权');
+      console.error('调用 sol_connect_wallet 获取 Solana 授权');
       try {
         solConnectResult = await client.solConnectWallet();
-        console.log('solConnectWallet result:', solConnectResult);
+        console.error('solConnectWallet result:', solConnectResult);
       } catch (error) {
         // 清空缓存
         this.solanaConnectCache.clear();
@@ -258,7 +258,7 @@ export class PluginWalletMode implements SignModeDefinition {
     
     // 获取 Solana 地址
     const solanaAddress = await this.resolveSolanaAddress(client, solConnectResult);
-    console.log('resolveSolanaAddress:', solanaAddress);
+    console.error('resolveSolanaAddress:', solanaAddress);
     
     if (!solanaAddress) {
       this.solanaConnectCache.clear();
@@ -267,7 +267,7 @@ export class PluginWalletMode implements SignModeDefinition {
 
     // 检查地址是否变化
     if (cachedAddress && cachedAddress !== solanaAddress) {
-      console.log('⚠️  检测到 Solana 地址变化，清空 Solana 缓存');
+      console.error('⚠️  检测到 Solana 地址变化，清空 Solana 缓存');
       this.solanaConnectCache.clear();
       // 地址变化了，需要重新连接
       throw new Error('Solana 地址已变化，需要重新连接');
@@ -279,7 +279,7 @@ export class PluginWalletMode implements SignModeDefinition {
     
     // 签名器创建成功，保存缓存（使用 Solana 地址作为 key）
     this.solanaConnectCache.set(solanaAddress, { connectResult: solConnectResult });
-    console.log('✓ Solana 连接结果已缓存');
+    console.error('✓ Solana 连接结果已缓存');
 
     return solanaSigner;
   }

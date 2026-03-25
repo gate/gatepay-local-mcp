@@ -33,7 +33,7 @@ export class ExactSvmScheme implements SchemeNetworkClient {
     const defaultRpcUrl = "https://api.mainnet-beta.solana.com";
     const rpcUrl = config?.rpcUrl ?? defaultRpcUrl;
     
-    console.log(`[ExactSvmScheme] 使用 RPC URL: ${rpcUrl}`);
+    console.error(`[ExactSvmScheme] 使用 RPC URL: ${rpcUrl}`);
     
     // 直接使用官方的 ExactSvmScheme 实现
     this.officialScheme = new OfficialExactSvmScheme(signer, { rpcUrl });
@@ -44,7 +44,7 @@ export class ExactSvmScheme implements SchemeNetworkClient {
     paymentRequirements: PaymentRequirements,
   ): Promise<Pick<PaymentPayload, "x402Version" | "payload">> {
     // 将本地类型转换为官方类型
-    console.log("createPaymentPayload paymentRequirements", paymentRequirements);
+    console.error("createPaymentPayload paymentRequirements", paymentRequirements);
     const officialRequirements: OfficialPaymentRequirements = {
       ...paymentRequirements,
       // network 需要确保是 scheme:network 格式

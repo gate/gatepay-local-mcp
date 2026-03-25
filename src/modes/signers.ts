@@ -131,7 +131,7 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
     }
   }
 
-  console.log("[extractSignatureFromMcpResult] sig value:", sig);
+  console.error("[extractSignatureFromMcpResult] sig value:", sig);
 
   if (typeof sig === "string" && sig.length > 0) {
     const hex = sig.replace(/^0x/i, "").trim();
@@ -149,14 +149,14 @@ function extractSignatureFromMcpResult(data: Record<string, unknown>): `0x${stri
     data.raw_transaction ??
     data.raw_tx;
 
-  console.log("[extractSignatureFromMcpResult] raw value:", raw);
+  console.error("[extractSignatureFromMcpResult] raw value:", raw);
 
   if (typeof raw === "string" && raw.length > 0) {
     const hex = raw.replace(/^0x/i, "").trim();
     return extractSignatureFromTxHex(hex);
   }
 
-  console.log("[extractSignatureFromMcpResult] no signature found, returning null");
+  console.error("[extractSignatureFromMcpResult] no signature found, returning null");
   return null;
 }
 
@@ -301,15 +301,15 @@ export function createPluginWalletSigner(
       primaryType: msg.primaryType,
       message: msg.message,
     });
-    console.log("[createPluginWalletSigner] calling signTypedData with:", typedDataJson);
+    console.error("[createPluginWalletSigner] calling signTypedData with:", typedDataJson);
     const result = await client.signTypedData(typedDataJson, address);
-    console.log("[createPluginWalletSigner] signTypedData result:", JSON.stringify(result));
+    console.error("[createPluginWalletSigner] signTypedData result:", JSON.stringify(result));
     const data = parseMcpToolResult<Record<string, unknown>>(result);
-    console.log("[createPluginWalletSigner] parsed data:", JSON.stringify(data));
+    console.error("[createPluginWalletSigner] parsed data:", JSON.stringify(data));
 
     // extractSignatureFromMcpResult 会在检测到错误对象时抛出友好的错误信息
     const sig = data && extractSignatureFromMcpResult(data);
-    console.log("[createPluginWalletSigner] extracted sig:", sig);
+    console.error("[createPluginWalletSigner] extracted sig:", sig);
     if (!sig) {
       throw new Error(
         "签名失败：未返回有效签名。请确保浏览器钱包已连接并正常工作。",
@@ -351,8 +351,8 @@ export async function createPluginWalletSolanaSigner(
   
   // 使用 address 函数创建符合 Address 类型的地址
   const address = createAddress(publicKeyBase58);
-  console.log("publicKeyBase58", publicKeyBase58);
-  console.log("address", address);
+  console.error("publicKeyBase58", publicKeyBase58);
+  console.error("address", address);
 
   return {
     address,
@@ -373,20 +373,20 @@ export async function createPluginWalletSolanaSigner(
           throw new Error("签名失败：未返回有效结果");
         }
         
-        console.log("[PluginWallet-Solana] 钱包返回数据:", JSON.stringify(data, null, 2));
+        console.error("[PluginWallet-Solana] 钱包返回数据:", JSON.stringify(data, null, 2));
         
         // 尝试使用新的多签提取方法（插件钱包专用）
         const multiSigResult = extractPluginWalletSignatures(data);
         
         if (multiSigResult && multiSigResult.signatures.length > 0) {
           // 插件钱包返回了多签信息
-          console.log(`[PluginWallet-Solana] 检测到多签交易，插件钱包签了 ${multiSigResult.signatures.length} 个签名`);
+          console.error(`[PluginWallet-Solana] 检测到多签交易，插件钱包签了 ${multiSigResult.signatures.length} 个签名`);
           
           // 对于多签交易，我们需要返回钱包签名的那个槽位的签名
           // 通常插件钱包会在 signedBy 中明确指出它签了哪些位置
           const walletSignature = multiSigResult.signatures[0]; // 取第一个钱包签名
           
-          console.log(`[PluginWallet-Solana] 使用插件钱包签名 - 槽位 ${walletSignature.index}: ${walletSignature.signature.slice(0, 20)}...`);
+          console.error(`[PluginWallet-Solana] 使用插件钱包签名 - 槽位 ${walletSignature.index}: ${walletSignature.signature.slice(0, 20)}...`);
           
           // 解析签名为字节数组并转换为 SignatureBytes 类型
           const signatureBytesArray = base58.decode(walletSignature.signature);
@@ -400,7 +400,7 @@ export async function createPluginWalletSolanaSigner(
           signatureDictionaries.push(signatureDictionary);
         } else {
           // 回退到旧的单签提取方法
-          console.log("[PluginWallet-Solana] 未检测到多签格式，使用单签提取方法");
+          console.error("[PluginWallet-Solana] 未检测到多签格式，使用单签提取方法");
           
           const signatureBase58 = extractSolanaSignature(data);
           if (!signatureBase58) {
@@ -473,10 +473,10 @@ function extractQuickWalletSolanaSignature(
     );
     const signatureBase58 = base58.encode(signatureBytes);
     
-    console.log("[extractQuickWalletSolanaSignature] ✓ 解析成功");
-    console.log("  - 签名 (hex):", signatureHex);
-    console.log("  - 签名 (base58):", signatureBase58);
-    console.log("  - 公钥 (hex):", publicKeyHex);
+    console.error("[extractQuickWalletSolanaSignature] ✓ 解析成功");
+    console.error("  - 签名 (hex):", signatureHex);
+    console.error("  - 签名 (base58):", signatureBase58);
+    console.error("  - 公钥 (hex):", publicKeyHex);
     
     return {
       signatureHex,
@@ -509,7 +509,7 @@ function extractSolanaSignature(
   const signature = data.signature ?? data.sig;
   
   if (typeof signature === "string" && signature.length > 0) {
-    console.log("[extractSolanaSignature] 使用标准签名字段");
+    console.error("[extractSolanaSignature] 使用标准签名字段");
     return signature;
   }
   
@@ -529,14 +529,14 @@ function extractSolanaSignature(
         }
       }
       
-      console.log("[extractSolanaSignature] 已签名交易总字节数:", bytes.length);
+      console.error("[extractSolanaSignature] 已签名交易总字节数:", bytes.length);
       
       // Solana 交易格式：
       // - 第1字节：签名数量
       // - 接下来每个签名占 64 字节
       
       const signatureCount = bytes[0];
-      console.log("[extractSolanaSignature] 签名数量:", signatureCount);
+      console.error("[extractSolanaSignature] 签名数量:", signatureCount);
       
       if (signatureCount === 0) {
         console.warn("[extractSolanaSignature] 签名数量为0，交易未签名");
@@ -566,14 +566,14 @@ function extractSolanaSignature(
           isEmpty,
         });
         
-        console.log(`[extractSolanaSignature] 签名槽 ${i}: ${isEmpty ? "空" : sigBase58.slice(0, 20) + "..."}`);
+        console.error(`[extractSolanaSignature] 签名槽 ${i}: ${isEmpty ? "空" : sigBase58.slice(0, 20) + "..."}`);
       }
       
       // 策略1: 如果指定了首选槽位，使用该槽位
       if (options?.preferredSlotIndex !== undefined) {
         const preferred = signatures.find(s => s.index === options.preferredSlotIndex);
         if (preferred && !preferred.isEmpty) {
-          console.log(`[extractSolanaSignature] ✓ 使用首选槽位 ${options.preferredSlotIndex}`);
+          console.error(`[extractSolanaSignature] ✓ 使用首选槽位 ${options.preferredSlotIndex}`);
           return preferred.base58;
         } else {
           console.warn(`[extractSolanaSignature] 首选槽位 ${options.preferredSlotIndex} 为空或不存在`);
@@ -583,7 +583,7 @@ function extractSolanaSignature(
       // 策略2: 使用第一个非空签名（通常客户端签名在前）
       const firstNonEmpty = signatures.find(s => !s.isEmpty);
       if (firstNonEmpty) {
-        console.log(`[extractSolanaSignature] ✓ 使用第一个非空签名（槽位 ${firstNonEmpty.index}）`);
+        console.error(`[extractSolanaSignature] ✓ 使用第一个非空签名（槽位 ${firstNonEmpty.index}）`);
         return firstNonEmpty.base58;
       }
       
@@ -649,7 +649,7 @@ function extractPluginWalletSignatures(
           index: sig.index,
           signature: sig.signature,
         });
-        console.log(`[extractPluginWalletSignatures] 找到签名 - 槽位 ${sig.index}: ${sig.signature.slice(0, 20)}...`);
+        console.error(`[extractPluginWalletSignatures] 找到签名 - 槽位 ${sig.index}: ${sig.signature.slice(0, 20)}...`);
       }
     }
   }
@@ -659,7 +659,7 @@ function extractPluginWalletSignatures(
     return null;
   }
   
-  console.log(`[extractPluginWalletSignatures] ✓ 成功提取 ${signatures.length} 个签名`);
+  console.error(`[extractPluginWalletSignatures] ✓ 成功提取 ${signatures.length} 个签名`);
   return { signatures };
 }
 
@@ -717,7 +717,7 @@ export async function createQuickWalletSigner(
 
     const digest = buildEip712TypedDataDigest(msg as Parameters<typeof buildEip712TypedDataDigest>[0]);
     const digestForMcp = digest.replace(/^0x/i, "");
-    console.log("[createSignerFromMcpWallet] typedData digest:", digestForMcp);
+    console.error("[createSignerFromMcpWallet] typedData digest:", digestForMcp);
     const result = await mcp.walletSignMessage("EVM", digestForMcp);
 
     const data = parseMcpToolResult<Record<string, unknown>>(result);
@@ -731,7 +731,7 @@ export async function createQuickWalletSigner(
         normalizedSig = `${sig.slice(0, 130)}${normalizedV}` as `0x${string}`;
       }
     }
-    console.log("[createSignerFromMcpWallet] sig:", normalizedSig);
+    console.error("[createSignerFromMcpWallet] sig:", normalizedSig);
 
     if (!sig) {
       throw new Error(
@@ -784,7 +784,7 @@ export async function createQuickWalletSolanaSigner(
       );
     }
     address = sol;
-    console.log("createQuickWalletSolanaSigner address", address);
+    console.error("createQuickWalletSolanaSigner address", address);
   }
 
   // 导入所需的函数
@@ -802,14 +802,14 @@ export async function createQuickWalletSolanaSigner(
     address: solAddress,
     signTransactions: async (transactions, config) => {
       void config; // 暂不使用 config 参数
-      console.log("[quick-wallet-solana]signTransactions transactions", transactions);
+      console.error("[quick-wallet-solana]signTransactions transactions", transactions);
       const signatureDictionaries = [];
       
       for (const transaction of transactions) {
         // 将交易序列化为 Base58 编码（MCP 接口使用 Base58）
         // 参照 getBase64EncodedWireTransaction 的实现
         const transactionBase58 = getBase58EncodedWireTransaction(transaction, transactionEncoder);
-        console.log("[quick-wallet-solana] 交易 Base58 长度:", transactionBase58.length);
+        console.error("[quick-wallet-solana] 交易 Base58 长度:", transactionBase58.length);
 
         // 调用 Quick Wallet MCP 签名 - 使用 walletSignTransaction
         // chain: "SOL", rawUnsignedTransaction: base58 encoded transaction
@@ -853,7 +853,7 @@ export async function createQuickWalletSolanaSigner(
           throw new Error("签名失败：无法从返回数据中提取签名");
         }
         
-        console.log("[quick-wallet-solana] 签名提取成功:", signatureInfo.signatureBase58);
+        console.error("[quick-wallet-solana] 签名提取成功:", signatureInfo.signatureBase58);
         
         // 将 Base58 签名转换为 SignatureBytes
         const signatureBytesArray = base58.decode(signatureInfo.signatureBase58);
