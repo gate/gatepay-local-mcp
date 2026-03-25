@@ -1,6 +1,6 @@
 {
   "name": "gatepay-local-mcp",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Gatepay Local (stdio) MCP server",
   "type": "module",
   "main": "dist/src/index.js",
