@@ -9,7 +9,7 @@ const DEFAULT_OAUTH_BACKEND_ORIGIN = "http://dev.halftrust.xyz";
 /** 账户授权页所在服务根地址（不含末尾 `/`） */
 const DEFAULT_ACCOUNT_AUTHORIZE_ORIGIN = "https://14099.gateio.tech";
 /** 本地 OAuth 回调监听端口（可被环境变量覆盖） */
-const DEFAULT_CALLBACK_PORT = 8090;
+const DEFAULT_CALLBACK_PORT = 18473;
 
 /** 读取 `GATE_PAY_OAUTH_CALLBACK_PORT`；未设置或非法时返回 `undefined` */
 function parseCallbackPortFromEnv(): number | undefined {
