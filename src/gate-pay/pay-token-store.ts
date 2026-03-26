@@ -14,6 +14,8 @@ const EXPIRY_SKEW_MS = 60_000;
 const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 let gatePayAccessToken: string | null = null;
+/** 与当前 access_token 关联的 Gate 用户 id（换 token / 登录时写入；仅刷新且响应未带 uid 时保留原值） */
+let gatePayUserId: string | null = null;
 let gatePayRefreshToken: string | null = null;
 let gatePayRefreshTokenExpiresAtMs: number | null = null;
 let gatePayTokenExpiresAtMs: number | null = null;
@@ -26,6 +28,8 @@ export function setGatePayAccessToken(
   expiresAtMs?: number | null,
   refreshToken?: string | null,
   refreshTokenExpiresAtMs?: number | null,
+  /** 传入则更新进程内 uid；不传则保留原值（用于刷新接口未返回 user_id 时） */
+  userId?: string,
 ): void {
   gatePayAccessToken = token;
   gatePayTokenIssuedAtMs = Date.now();
@@ -38,6 +42,9 @@ export function setGatePayAccessToken(
   if (refreshTokenExpiresAtMs !== undefined) {
     gatePayRefreshTokenExpiresAtMs =
       refreshTokenExpiresAtMs === null ? null : refreshTokenExpiresAtMs;
+  }
+  if (userId !== undefined) {
+    gatePayUserId = userId.length > 0 ? userId : null;
   }
 }
 
@@ -99,11 +106,16 @@ async function doEnsureGatePayAccessTokenFresh(): Promise<boolean> {
   try {
     const oauth = new GateOAuth({ clientSecret: secret });
     const tok = await oauth.refreshAccessToken(gatePayRefreshToken);
+    const uidFromRefresh =
+      typeof tok.userId === "string" && tok.userId.length > 0
+        ? tok.userId
+        : undefined;
     setGatePayAccessToken(
       tok.accessToken,
       tok.expiresAt,
       tok.refreshToken ?? gatePayRefreshToken,
       tok.refreshTokenExpiresAt,
+      uidFromRefresh,
     );
     console.error("[Gate Pay] access_token 已刷新。");
     return true;
@@ -137,8 +149,15 @@ export function getGatePayAccessToken(): string | null {
   return gatePayAccessToken;
 }
 
+/** 与当前有效会话关联的 uid；无会话或历史未写入时为 null */
+export function getGatePayUserId(): string | null {
+  invalidateIfExpired();
+  return gatePayUserId;
+}
+
 export function clearGatePayAccessToken(): void {
   gatePayAccessToken = null;
+  gatePayUserId = null;
   gatePayRefreshToken = null;
   gatePayRefreshTokenExpiresAtMs = null;
   gatePayTokenExpiresAtMs = null;

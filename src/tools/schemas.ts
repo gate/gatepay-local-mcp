@@ -221,6 +221,7 @@ export const GATE_PAY_AUTH_INPUT_SCHEMA = {
 export const GATE_PAY_AUTH_DESCRIPTION =
   "When the user chooses centralized_payment (中心化支付), run this tool to complete Gate Pay OAuth: browser opens Gate authorize URL, redirect hits localhost callback, then the client exchanges the code for access_token via the remote OAuth backend (GATE_PAY_OAUTH_TOKEN_BASE_URL, etc.). " +
   "Stores access_token in-process for Authorization: Bearer on x402_submit_payment when sign_mode is centralized_payment. " +
+  "Success JSON includes gate_pay_access_token_masked and gate_pay_uid_masked (脱敏). " +
   "Wallet MCP login (x402_quick_wallet_auth) is separate and not used for Gate Pay.";
 
 // ============================================================================

@@ -38,6 +38,7 @@ async function loginWithGatePayOAuthRedirect(): Promise<GatePayDeviceFlowResult>
       token.expiresAt,
       token.refreshToken,
       token.refreshTokenExpiresAt,
+      token.userId,
     );
     console.error("[Gate Pay] Authorized; access_token stored.");
     if (token.userId) console.error(`[Gate Pay] user_id: ${token.userId}`);
