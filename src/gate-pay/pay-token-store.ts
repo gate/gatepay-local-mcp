@@ -10,7 +10,7 @@ import {
 import { GateOAuth } from "./gate-oauth-class.js";
 
 const EXPIRY_SKEW_MS = 60_000;
-/** Gate Pay access_token 实际有效期（与 OAuth 侧一致，不因缺省 expires_in 误用更长 TTL） */
+/** 接口未返回 access 过期时间时，自签发起默认有效时长 */
 const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 let gatePayAccessToken: string | null = null;
@@ -43,9 +43,8 @@ export function setGatePayAccessToken(
 
 function effectiveExpiresAtMs(): number | null {
   if (gatePayTokenIssuedAtMs == null) return null;
-  const cappedByTtl = gatePayTokenIssuedAtMs + ACCESS_TOKEN_TTL_MS;
-  if (gatePayTokenExpiresAtMs == null) return cappedByTtl;
-  return Math.min(gatePayTokenExpiresAtMs, cappedByTtl);
+  if (gatePayTokenExpiresAtMs != null) return gatePayTokenExpiresAtMs;
+  return gatePayTokenIssuedAtMs + ACCESS_TOKEN_TTL_MS;
 }
 
 /**
