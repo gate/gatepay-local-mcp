@@ -37,7 +37,7 @@ export interface ExtractedPaymentInfo {
   totalFee: string;
   payCurrency: string;
   payAmount: string;
-  uid: number;
+  uid: string;
 }
 
 /**
@@ -64,10 +64,11 @@ export function parsePaymentRequiredHeader(base64Header: string): PaymentRequire
 /**
  * 从解析后的数据中提取支付信息
  * amount 需要除以 10^6 转换为实际金额
+ * uid 参数可选，用于指定用户 ID
  */
 export function extractPaymentInfo(
   data: PaymentRequiredData,
-  uid: number = 10002
+  uid?: string
 ): ExtractedPaymentInfo {
   const firstAccept = data.accepts[0];
   
@@ -100,6 +101,6 @@ export function extractPaymentInfo(
     totalFee,
     payCurrency: currency,
     payAmount: totalFee,
-    uid,
+    uid: uid || "",
   };
 }

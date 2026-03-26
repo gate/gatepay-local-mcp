@@ -4,8 +4,7 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { runGatePayDeviceAuthIfNeeded } from "../gate-pay/auth.js";
-import { getGatePayAccessToken } from "../gate-pay/pay-token-store.js";
+import { ensureGatePayAccessTokenAndUid } from "../gate-pay/auth.js";
 import {
   parsePaymentRequiredHeader,
   extractPaymentInfo,
@@ -38,29 +37,31 @@ export async function handleCentralizedPayment(
       return createErrorResponse(`解析 PAYMENT-REQUIRED header 失败: ${errorMessage}`);
     }
     
-    // 3. 提取支付信息
+    // 3. 确保有效的 Gate Pay access_token 和 uid
+    let authResult;
+    try {
+      authResult = await ensureGatePayAccessTokenAndUid();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return createErrorResponse(
+        `中心化支付需要 Gate Pay 授权，但获取失败: ${errorMessage}\n` +
+        `请执行 x402_gate_pay_auth（浏览器 OAuth + 远程换 token），必要时检查 GATE_PAY_OAUTH_TOKEN_BASE_URL 等环境变量后重试。`
+      );
+    }
+    
+    // 4. 提取支付信息（使用获取到的 uid）
     let paymentInfo;
     try {
-      paymentInfo = extractPaymentInfo(paymentData);
+      paymentInfo = extractPaymentInfo(paymentData, authResult.uid);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return createErrorResponse(`提取支付信息失败: ${errorMessage}`);
     }
     
-    // 4. 确保有效的 Gate Pay access_token
-    await runGatePayDeviceAuthIfNeeded();
-    const accessToken = getGatePayAccessToken();
-    
-    if (!accessToken) {
-      return createErrorResponse(
-        "中心化支付需要 Gate Pay 授权，但未能获取 access_token。请执行 x402_gate_pay_auth（浏览器 OAuth + 远程换 token），必要时检查 GATE_PAY_OAUTH_TOKEN_BASE_URL 等环境变量后重试。"
-      );
-    }
-    
     // 5. 调用中心化支付 API
     const paymentResponse = await submitCentralizedPayment(
       paymentInfo,
-      accessToken
+      authResult.accessToken
     );
     
     if (!paymentResponse.success) {

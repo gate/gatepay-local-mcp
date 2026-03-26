@@ -59,7 +59,8 @@ try {
 console.log("3. 提取支付信息:");
 try {
   const parsed = parsePaymentRequiredHeader(base64Encoded);
-  const paymentInfo = extractPaymentInfo(parsed);
+  const testUid = "10002";
+  const paymentInfo = extractPaymentInfo(parsed, testUid);
   
   console.log("✓ 提取成功");
   console.log("  - prepayId:", paymentInfo.prepayId);
@@ -79,7 +80,7 @@ try {
     "totalFee": "10",
     "payCurrency": "USDC",
     "payAmount": "10",
-    "uid": 10002
+    "uid": "10002"
   };
   
   console.log("4. 验证输出是否符合预期:");
