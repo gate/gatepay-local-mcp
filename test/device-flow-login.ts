@@ -25,15 +25,15 @@ async function main() {
   const isGoogle = providerEnv === "google";
   const provider = isGoogle ? "Google" : "Gate";
 
-  console.log("Device Flow 登录测试（授权后获取 token）");
-  console.log("  QUICK_WALLET_SERVER_URL:", baseUrl);
-  console.log("  QUICK_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置)");
-  console.log("  Provider:", provider);
-  console.log("  请在浏览器中完成授权，否则将超时。\n");
+  console.error("Device Flow 登录测试（授权后获取 token）");
+  console.error("  QUICK_WALLET_SERVER_URL:", baseUrl);
+  console.error("  QUICK_WALLET_API_KEY:", apiKey ? `${apiKey.slice(0, 8)}...` : "(未设置)");
+  console.error("  Provider:", provider);
+  console.error("  请在浏览器中完成授权，否则将超时。\n");
 
   const client = await getMcpClient({ serverUrl: baseUrl, apiKey });
   try {
-    console.log("→ Calling MCP auth start + poll until authorized...\n");
+    console.error("→ Calling MCP auth start + poll until authorized...\n");
     const ok = await loginWithDeviceFlow(client, baseUrl, isGoogle, provider, {
       saveToken: false,
       reportAddresses: false,
@@ -51,8 +51,8 @@ async function main() {
     }
 
     const masked = token.length > 12 ? `${token.slice(0, 8)}...${token.slice(-4)}` : "***";
-    console.log("\n✓ 验证通过：已通过授权登录并获取 token");
-    console.log("  mcp_token (masked):", masked);
+    console.error("\n✓ 验证通过：已通过授权登录并获取 token");
+    console.error("  mcp_token (masked):", masked);
   } finally {
     await client.disconnect();
   }
