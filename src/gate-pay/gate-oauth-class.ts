@@ -33,9 +33,9 @@ export class GateOAuth extends BaseLocalOAuth<GateOAuthConfig> {
     return super.login();
   }
 
-  /** 不含 request_key，与浏览器授权页同源查询参数（用于预检 JSON） */
-  private buildAuthorizeBaseUrl(redirectUri: string): URL {
-    const url = new URL(this.config.accountAuthorizeEndpoint);
+  /** 不含 request_key；`authorizeBase` 为 gateAuthEndpoint（预检）或 accountAuthorizeEndpoint（浏览器） */
+  private buildAuthorizeBaseUrl(authorizeBase: string, redirectUri: string): URL {
+    const url = new URL(authorizeBase);
     url.searchParams.set("client_id", this.config.clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
@@ -117,20 +117,26 @@ export class GateOAuth extends BaseLocalOAuth<GateOAuthConfig> {
   }
 
   protected async buildAuthUrl(redirectUri: string): Promise<string> {
-    const url = this.buildAuthorizeBaseUrl(redirectUri);
-    const precheckUrl = url.toString();
-    logGatePayOAuth("buildAuthUrl: 预检前 URL 查询参数（全量）", {
+    const browserUrl = this.buildAuthorizeBaseUrl(
+      this.config.accountAuthorizeEndpoint,
+      redirectUri,
+    );
+    const precheckUrl = this.buildAuthorizeBaseUrl(
+      this.config.gateAuthEndpoint,
+      redirectUri,
+    ).toString();
+    logGatePayOAuth("buildAuthUrl: 预检 URL（OAuth 后端 gateAuthEndpoint，全量）", {
       href: precheckUrl,
-      client_id: url.searchParams.get("client_id"),
-      redirect_uri: url.searchParams.get("redirect_uri"),
-      response_type: url.searchParams.get("response_type"),
-      scope: url.searchParams.get("scope"),
+      client_id: browserUrl.searchParams.get("client_id"),
+      redirect_uri: browserUrl.searchParams.get("redirect_uri"),
+      response_type: browserUrl.searchParams.get("response_type"),
+      scope: browserUrl.searchParams.get("scope"),
     });
     const requestKey = await this.fetchAuthorizeRequestKey(precheckUrl);
     if (requestKey) {
-      url.searchParams.set("request_key", requestKey);
+      browserUrl.searchParams.set("request_key", requestKey);
     }
-    const finalUrl = url.toString();
+    const finalUrl = browserUrl.toString();
     logGatePayOAuth(
       requestKey
         ? "buildAuthUrl: 浏览器授权完整 URL（含 request_key）"

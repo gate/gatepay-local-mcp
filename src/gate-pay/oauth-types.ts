@@ -18,8 +18,9 @@ export interface BaseOAuthConfig {
 }
 
 export interface GateOAuthConfig extends BaseOAuthConfig {
+  /** GET + gateio/web 预检 JSON（data.requestKey）的 authorize 基址，通常为 OAuth 后端 `/oauth/authorize` */
   gateAuthEndpoint: string;
-  /** 浏览器授权与预检 request_key 使用的完整 URL（与 gateAuthEndpoint 分离，便于保留原 OAuth authorize 配置） */
+  /** 浏览器打开的账户授权页基址，通常为 `/account-authorize`；查询参数与 gateAuthEndpoint 侧一致并附加 request_key */
   accountAuthorizeEndpoint: string;
   clientId: string;
   scope: string;

@@ -1,13 +1,13 @@
 import type { GateOAuthConfig } from "./oauth-types.js";
 
-const DEFAULT_OAUTH_TOKEN_PATH = "/oauth2/oauth/internal/api/token";
-const OAUTH_AUTHORIZE_PATH = "/oauth2/oauth/authorize";
+const DEFAULT_OAUTH_TOKEN_PATH = "/oauth/internal/api/token";
+const OAUTH_AUTHORIZE_PATH = "/oauth/authorize";
 const ACCOUNT_AUTHORIZE_PATH = "/account-authorize";
 
 /** 换 token / 授权页所在服务根地址（不含末尾 `/`），默认测试环境 */
-const DEFAULT_OAUTH_BACKEND_ORIGIN = "http://dev.halftrust.xyz";
+const DEFAULT_OAUTH_BACKEND_ORIGIN = "https://www.gate.com/apiw/v2/mcp/oauth";
 /** 账户授权页所在服务根地址（不含末尾 `/`） */
-const DEFAULT_ACCOUNT_AUTHORIZE_ORIGIN = "https://14099.gateio.tech";
+const DEFAULT_ACCOUNT_AUTHORIZE_ORIGIN = "https://gate.com";
 /** 本地 OAuth 回调监听端口（可被环境变量覆盖） */
 const DEFAULT_CALLBACK_PORT = 18473;
 
@@ -45,8 +45,8 @@ export const GATE_DEFAULT_CONFIG: GateOAuthConfig = {
   oauthRefreshEndpoint: deriveOAuthRefreshUrlFromTokenUrl(_defaultTokenEndpoint),
   gateAuthEndpoint: `${resolvedOAuthBackendOrigin()}${OAUTH_AUTHORIZE_PATH}`,
   accountAuthorizeEndpoint: `${resolvedAccountAuthorizeOrigin()}${ACCOUNT_AUTHORIZE_PATH}`,
-  clientId: "mZ96D37oKk-HrWJc",
-  clientSecret: "",
+  clientId: "kIWkpCQBJUPWNuDo",
+  clientSecret: "u4tyiLBhryczzT_5XcmHLVYQkWYhCIbPH1ejtXqiuLs=",
   scope: "read_profile",
   callbackPort: parseCallbackPortFromEnv() ?? DEFAULT_CALLBACK_PORT,
   authorizeUserAgent: "gateio/web",
