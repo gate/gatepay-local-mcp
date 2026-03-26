@@ -52,7 +52,7 @@ export abstract class BaseLocalOAuth<C extends BaseOAuthConfig> {
   /** 启动 localhost 回调监听，拼装 authUrl 并打开浏览器，直到收到授权码或失败/超时 */
   private waitForAuthorizationCode(): Promise<{ code: string; redirectUri: string }> {
     return new Promise((resolve, reject) => {
-      let callbackPort = 0;
+      let callbackPort = 18473;
 
       const server = createServer((req, res) => {
         const url = new URL(req.url ?? "/", `http://127.0.0.1`);
