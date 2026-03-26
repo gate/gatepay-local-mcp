@@ -5,4 +5,5 @@ export { handleSubmitPayment } from "./submit-payment.js";
 export { handleGatePayAuth } from "./gate-pay-auth.js";
 export { handleQuickWalletAuth } from "./quick-wallet-auth.js";
 export { handleX402Request } from "./x402-request.js";
+export { handleCentralizedPayment } from "./centralized-payment.js";
 export { getPublicTools } from "./schemas.js";

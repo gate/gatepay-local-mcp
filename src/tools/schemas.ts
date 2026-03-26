@@ -248,6 +248,28 @@ export const QUICK_WALLET_AUTH_DESCRIPTION =
   "To switch authorization provider (e.g. Gate vs Google), restart the MCP server; the in-process wallet client keeps the current session until restart.";
 
 // ============================================================================
+// x402_centralized_payment
+// ============================================================================
+
+export const CENTRALIZED_PAYMENT_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    payment_required_header: {
+      type: "string",
+      description: "Base64-encoded PAYMENT-REQUIRED header value containing payment information",
+    },
+  },
+  required: ["payment_required_header"],
+};
+
+export const CENTRALIZED_PAYMENT_DESCRIPTION =
+  "Execute centralized payment (中心化支付) by parsing PAYMENT-REQUIRED header, extracting payment information, " +
+  "and calling the Gate Pay centralized payment API. " +
+  "Automatically handles Gate Pay OAuth authentication if needed (same as x402_gate_pay_auth). " +
+  "Parses amount (converts from smallest unit by dividing by 10^6), currency, prepayId, and orderId from the header. " +
+  "Returns payment result including transaction details.";
+
+// ============================================================================
 // Public Tools Registry
 // ============================================================================
 
@@ -282,6 +304,11 @@ export function getPublicTools() {
       name: "x402_quick_wallet_auth",
       description: QUICK_WALLET_AUTH_DESCRIPTION,
       inputSchema: QUICK_WALLET_AUTH_INPUT_SCHEMA,
+    },
+    {
+      name: "x402_centralized_payment",
+      description: CENTRALIZED_PAYMENT_DESCRIPTION,
+      inputSchema: CENTRALIZED_PAYMENT_INPUT_SCHEMA,
     },
   ];
 }

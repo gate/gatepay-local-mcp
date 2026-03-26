@@ -26,6 +26,7 @@ import {
   handleGatePayAuth,
   handleQuickWalletAuth,
   handleX402Request,
+  handleCentralizedPayment,
 } from "./tools/index.js";
 import { createErrorResponse } from "./utils/response-helpers.js";
 
@@ -98,6 +99,10 @@ async function main(): Promise<void> {
         mcpWalletUrl: quickWalletMcpUrl,
         mcpApiKey: quickWalletApiKey,
       });
+    }
+
+    if (name === "x402_centralized_payment") {
+      return await handleCentralizedPayment(args ?? {});
     }
 
     // Keep x402_request handler for backward compatibility (not exposed in ListTools)
