@@ -1,4 +1,4 @@
-import { createPluginWalletSigner } from "./signers.js";
+import { createPluginWalletSigner } from "./signers/index.js";
 import {
   getPluginWalletClient,
   getPluginWalletServerUrl,
@@ -106,7 +106,7 @@ export class PluginWalletMode implements SignModeDefinition {
     }
     
     // 尝试解析 Solana 签名器
-    let solanaSigner: Awaited<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner>> | undefined;
+    let solanaSigner: Awaited<ReturnType<typeof import("./signers/index.js").createPluginWalletSolanaSigner>> | undefined;
     let solanaError: Error | null = null;
     try {
       solanaSigner = await this.resolveSolanaSigner(client);
@@ -212,7 +212,7 @@ export class PluginWalletMode implements SignModeDefinition {
    */
   private async resolveSolanaSigner(
     client: PluginWalletClient,
-  ): Promise<Awaited<ReturnType<typeof import("./signers.js").createPluginWalletSolanaSigner>> | undefined> {
+  ): Promise<Awaited<ReturnType<typeof import("./signers/index.js").createPluginWalletSolanaSigner>> | undefined> {
     // 先尝试从缓存中获取已连接的地址和结果
     let solConnectResult: unknown;
     let cachedAddress: string | undefined;
@@ -274,7 +274,7 @@ export class PluginWalletMode implements SignModeDefinition {
     }
 
     // 创建 Solana 签名器
-    const { createPluginWalletSolanaSigner } = await import("./signers.js");
+    const { createPluginWalletSolanaSigner } = await import("./signers/index.js");
     const solanaSigner = await createPluginWalletSolanaSigner(client, solanaAddress);
     
     // 签名器创建成功，保存缓存（使用 Solana 地址作为 key）

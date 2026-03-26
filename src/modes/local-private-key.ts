@@ -1,4 +1,4 @@
-import { createLocalPrivateKeySigner, createLocalSolanaPrivateKeySigner } from "./signers.js";
+import { createLocalPrivateKeySigner, createLocalSolanaPrivateKeySigner } from "./signers/index.js";
 import type {
   ResolvedSignerSession,
   SignModeAvailability,

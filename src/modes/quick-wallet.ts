@@ -1,4 +1,4 @@
-import { createQuickWalletSigner, createQuickWalletSolanaSigner } from "./signers.js";
+import { createQuickWalletSigner, createQuickWalletSolanaSigner } from "./signers/index.js";
 import { loginWithDeviceFlow } from "../wallets/device-flow-login.js";
 import {
   getMcpClient,
