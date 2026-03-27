@@ -77,7 +77,6 @@ export async function submitCentralizedPayment(
     });
     
     const responseBody = await response.text();
-    
     if (!response.ok) {
       return {
         success: false,
@@ -92,6 +91,69 @@ export async function submitCentralizedPayment(
       data = responseBody ? JSON.parse(responseBody) : null;
     } catch {
       data = responseBody;
+    }
+    
+    // 检查业务层面的错误：即使 HTTP 200，但可能业务失败
+    if (data && typeof data === "object") {
+      // 情况1: data.bizMessage 有值
+      if ("data" in data) {
+        const bizData = (data as { data?: { bizMessage?: string } }).data;
+        if (bizData?.bizMessage) {
+          return {
+            success: false,
+            error: bizData.bizMessage,
+            statusCode: response.status,
+            responseBody,
+            data,
+          };
+        }
+      }
+      
+      // 情况2: code 不等于 200 或 "200"
+      const code = (data as { code?: string | number }).code;
+      if (code !== undefined && code !== 200 && code !== "200") {
+        const errorMsg = 
+          (data as { errorMessage?: string }).errorMessage ||
+          (data as { label?: string }).label ||
+          (data as { message?: string }).message ||
+          `Business error: code ${code}`;
+        return {
+          success: false,
+          error: errorMsg,
+          statusCode: response.status,
+          responseBody,
+          data,
+        };
+      }
+      
+      // 情况3: status 为 FAIL
+      const status = (data as { status?: string }).status;
+      if (status === "FAIL" || status === "ERROR") {
+        const errorMsg = 
+          (data as { errorMessage?: string }).errorMessage ||
+          (data as { label?: string }).label ||
+          (data as { message?: string }).message ||
+          "Request failed";
+        return {
+          success: false,
+          error: errorMsg,
+          statusCode: response.status,
+          responseBody,
+          data,
+        };
+      }
+      
+      // 情况4: 直接有 errorMessage 字段
+      const errorMessage = (data as { errorMessage?: string }).errorMessage;
+      if (errorMessage) {
+        return {
+          success: false,
+          error: errorMessage,
+          statusCode: response.status,
+          responseBody,
+          data,
+        };
+      }
     }
     
     return {
