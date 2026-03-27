@@ -13,6 +13,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { getEnvConfig } from "./config/env-config.js";
 import { LocalPrivateKeyMode } from "./modes/local-private-key.js";
 import { PluginWalletMode } from "./modes/plugin-wallet.js";
 import { createSignModeRegistry } from "./modes/registry.js";
@@ -46,10 +47,12 @@ const packageRoot = findPackageRoot(__dirname);
 config({ path: join(packageRoot, ".env") });
 
 async function main(): Promise<void> {
-  const quickWalletMcpUrl = process.env.QUICK_WALLET_SERVER_URL ?? "https://api.gatemcp.ai/mcp/dex";
+  const envConfig = getEnvConfig();
+  
+  const quickWalletMcpUrl = process.env.QUICK_WALLET_SERVER_URL ?? envConfig.quickWalletServerUrl;
   const quickWalletApiKey = process.env.QUICK_WALLET_API_KEY;
   
-  const pluginWalletBaseUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? "https://walletmcp.gate.com/mcp";
+  const pluginWalletBaseUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? envConfig.pluginWalletServerUrl;
   const pluginWalletToken = process.env.PLUGIN_WALLET_TOKEN;
   const pluginWalletServerUrl = pluginWalletToken 
     ? `${pluginWalletBaseUrl}?token=${encodeURIComponent(pluginWalletToken)}`

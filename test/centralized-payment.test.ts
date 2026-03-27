@@ -5,39 +5,11 @@
 import { parsePaymentRequiredHeader, extractPaymentInfo } from "../src/gate-pay/centralized-payment/index.js";
 
 // 测试数据：你提供的示例 PAYMENT-REQUIRED header
-const testPayload = {
-  "x402Version": 2,
-  "error": "Payment required",
-  "resource": {
-    "url": "http://localhost:8080/flight/order",
-    "description": "Flight order",
-    "mimeType": "application/json",
-    "orderId": "ORD-45B88F8B"
-  },
-  "accepts": [
-    {
-      "scheme": "exact",
-      "network": "solana-devnet",
-      "amount": "10000000",
-      "asset": "BPy1fp1Hb1v6Rr41ayPs8ttRUrjjNqkApudTiinNucg3",
-      "payTo": "BupBzPocE7ZeFZ9zzXj3McqmCjWKmzaP4Z2MAQN8o64L",
-      "maxTimeoutSeconds": 599,
-      "extra": {
-        "name": "USDC",
-        "prepayId": "82967300620550384",
-        "expireTime": 1774491091273,
-        "feePayer": "2sNna5GLGutRVAH4ZoUgWxtz31gXKsRTFs6mWmvRmAg4",
-        "version": "2",
-        "orderId": "ORD-45B88F8B"
-      }
-    }
-  ]
-};
+const base64Encoded = "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL2ZsaWdodC9vcmRlciIsImRlc2NyaXB0aW9uIjoiRmxpZ2h0IG9yZGVyIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIiwib3JkZXJJZCI6Ik9SRC0wQUI2NjNGMiJ9LCJhY2NlcHRzIjpbeyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJzb2xhbmEtZGV2bmV0IiwiYW1vdW50IjoiMjAwMDAiLCJhc3NldCI6IkJQeTFmcDFIYjF2NlJyNDFheVBzOHR0UlVyampOcWtBcHVkVGlpbk51Y2czIiwicGF5VG8iOiJBYWVldE4yVG1ZaTNOUzE5VUJneThoSzJQWmVwZnVDZTFqUnhudmZSYzk1RyIsIm1heFRpbWVvdXRTZWNvbmRzIjo1OTgsImV4dHJhIjp7Im5hbWUiOiJVU0RDIiwicHJlcGF5SWQiOiI4Mjk3MDgzMzIzMTE1MTEwNCIsImV4cGlyZVRpbWUiOjE3NzQ1ODQzNzU1NDUsImZlZVBheWVyIjoiMnNObmE1R0xHdXRSVkFINFpvVWdXeHR6MzFnWEtzUlRGczZtV212Um1BZzQiLCJ2ZXJzaW9uIjoiMiIsIm9yZGVySWQiOiJPUkQtMEFCNjYzRjIifX1dfQ==";
 
 console.log("=== 测试中心化支付解析器 ===\n");
 
 // 1. 测试 base64 编码
-const base64Encoded = Buffer.from(JSON.stringify(testPayload)).toString("base64");
 console.log("1. Base64 编码后的 PAYMENT-REQUIRED header:");
 console.log(base64Encoded.substring(0, 80) + "...\n");
 
@@ -61,7 +33,7 @@ try {
   const parsed = parsePaymentRequiredHeader(base64Encoded);
   const testUid = "10002";
   const paymentInfo = extractPaymentInfo(parsed, testUid);
-  
+  console.log(JSON.stringify(paymentInfo, null, 2));
   console.log("✓ 提取成功");
   console.log("  - prepayId:", paymentInfo.prepayId);
   console.log("  - merchantTradeNo:", paymentInfo.merchantTradeNo);

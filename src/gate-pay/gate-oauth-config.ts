@@ -1,32 +1,20 @@
 import type { GateOAuthConfig } from "./oauth-types.js";
+import { getEnvConfig } from "../config/env-config.js";
 
 const DEFAULT_OAUTH_TOKEN_PATH = "/oauth/internal/api/token";
 const OAUTH_AUTHORIZE_PATH = "/oauth/authorize";
 const ACCOUNT_AUTHORIZE_PATH = "/account-authorize";
 
-/** 换 token / 授权页所在服务根地址（不含末尾 `/`），默认测试环境 */
-const DEFAULT_OAUTH_BACKEND_ORIGIN = "https://www.gate.com/apiw/v2/mcp/oauth";
-/** 账户授权页所在服务根地址（不含末尾 `/`） */
-const DEFAULT_ACCOUNT_AUTHORIZE_ORIGIN = "https://gate.com";
-/** 本地 OAuth 回调监听端口（可被环境变量覆盖） */
-const DEFAULT_CALLBACK_PORT = 18473;
-
-/** 读取 `GATE_PAY_OAUTH_CALLBACK_PORT`；未设置或非法时返回 `undefined` */
-function parseCallbackPortFromEnv(): number | undefined {
-  const portStr = process.env.GATE_PAY_OAUTH_CALLBACK_PORT?.trim();
-  if (!portStr) return undefined;
-  const n = parseInt(portStr, 10);
-  return Number.isNaN(n) ? undefined : n;
-}
-
 function resolvedOAuthBackendOrigin(): string {
-  const v = process.env.GATE_PAY_OAUTH_BACKEND_ORIGIN?.trim();
-  return (v || DEFAULT_OAUTH_BACKEND_ORIGIN).replace(/\/$/, "");
+  const envConfig = getEnvConfig();
+  const envVar = process.env.GATE_PAY_OAUTH_BACKEND_ORIGIN?.trim();
+  return (envVar || envConfig.oauthBackendOrigin).replace(/\/$/, "");
 }
 
 function resolvedAccountAuthorizeOrigin(): string {
-  const v = process.env.GATE_PAY_ACCOUNT_AUTHORIZE_ORIGIN?.trim();
-  return (v || DEFAULT_ACCOUNT_AUTHORIZE_ORIGIN).replace(/\/$/, "");
+  const envConfig = getEnvConfig();
+  const envVar = process.env.GATE_PAY_ACCOUNT_AUTHORIZE_ORIGIN?.trim();
+  return (envVar || envConfig.accountAuthorizeOrigin).replace(/\/$/, "");
 }
 
 /** 由换 token URL 推导刷新 URL（末尾 `/token` → `/refresh`） */
@@ -39,18 +27,21 @@ export function deriveOAuthRefreshUrlFromTokenUrl(tokenUrl: string): string {
 
 const _defaultTokenEndpoint = `${resolvedOAuthBackendOrigin()}${DEFAULT_OAUTH_TOKEN_PATH}`;
 
-/** 默认测试环境；生产请通过环境变量或构造参数覆盖 */
-export const GATE_DEFAULT_CONFIG: GateOAuthConfig = {
-  oauthTokenEndpoint: _defaultTokenEndpoint,
-  oauthRefreshEndpoint: deriveOAuthRefreshUrlFromTokenUrl(_defaultTokenEndpoint),
-  gateAuthEndpoint: `${resolvedOAuthBackendOrigin()}${OAUTH_AUTHORIZE_PATH}`,
-  accountAuthorizeEndpoint: `${resolvedAccountAuthorizeOrigin()}${ACCOUNT_AUTHORIZE_PATH}`,
-  clientId: "kIWkpCQBJUPWNuDo",
-  clientSecret: "u4tyiLBhryczzT_5XcmHLVYQkWYhCIbPH1ejtXqiuLs=",
-  scope: "read_profile",
-  callbackPort: parseCallbackPortFromEnv() ?? DEFAULT_CALLBACK_PORT,
-  authorizeUserAgent: "gateio/web",
-};
+/** 从环境配置获取默认配置 */
+export const GATE_DEFAULT_CONFIG: GateOAuthConfig = (() => {
+  const envConfig = getEnvConfig();
+  return {
+    oauthTokenEndpoint: _defaultTokenEndpoint,
+    oauthRefreshEndpoint: deriveOAuthRefreshUrlFromTokenUrl(_defaultTokenEndpoint),
+    gateAuthEndpoint: `${resolvedOAuthBackendOrigin()}${OAUTH_AUTHORIZE_PATH}`,
+    accountAuthorizeEndpoint: `${resolvedAccountAuthorizeOrigin()}${ACCOUNT_AUTHORIZE_PATH}`,
+    clientId: envConfig.oauthClientId,
+    clientSecret: envConfig.oauthClientSecret,
+    scope: envConfig.oauthScope,
+    callbackPort: envConfig.oauthCallbackPort,
+    authorizeUserAgent: envConfig.oauthAuthorizeUserAgent,
+  };
+})();
 
 export function gateOAuthConfigFromEnv(): Partial<GateOAuthConfig> {
   const partial: Partial<GateOAuthConfig> = {};
@@ -106,7 +97,10 @@ export function gateOAuthConfigFromEnv(): Partial<GateOAuthConfig> {
   if (secret) partial.clientSecret = secret;
   const scope = process.env.GATE_PAY_OAUTH_SCOPE?.trim();
   if (scope) partial.scope = scope;
-  const callbackPort = parseCallbackPortFromEnv();
-  if (callbackPort !== undefined) partial.callbackPort = callbackPort;
+  const portStr = process.env.GATE_PAY_OAUTH_CALLBACK_PORT?.trim();
+  if (portStr) {
+    const n = parseInt(portStr, 10);
+    if (!Number.isNaN(n)) partial.callbackPort = n;
+  }
   return partial;
 }

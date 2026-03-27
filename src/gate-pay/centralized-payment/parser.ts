@@ -85,11 +85,13 @@ export function extractPaymentInfo(
     throw new Error("缺少 orderId 字段");
   }
   
-  // 金额转换：除以 10^6
+  // 金额转换：除以 10^6，保留最多 8 位小数
   const amountInSmallestUnit = BigInt(firstAccept.amount);
-  const divisor = BigInt(1_000_000);
-  const amountInMainUnit = amountInSmallestUnit / divisor;
-  const totalFee = amountInMainUnit.toString();
+  const divisor = 1_000_000;
+  // 将 BigInt 转换为 Number 进行浮点除法
+  const amountInMainUnit = Number(amountInSmallestUnit) / divisor;
+  // 保留最多 8 位小数，去除尾部多余的 0
+  const totalFee = amountInMainUnit.toFixed(8).replace(/\.?0+$/, "");
   
   // 提取币种名称
   const currency = firstAccept.extra?.name || "USDC";

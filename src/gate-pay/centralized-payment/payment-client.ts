@@ -3,9 +3,7 @@
  */
 
 import type { ExtractedPaymentInfo } from "./parser.js";
-
-const DEFAULT_PAYMENT_URL = "http://dev.halftrust.xyz/payment-service/payment/gatepay/v2/pay/ai/order/pay";
-const DEFAULT_CLIENT_ID = "mZ96D37oKk-HrWJc";
+import { getEnvConfig } from "../../config/env-config.js";
 
 export interface CentralizedPaymentConfig {
   paymentUrl?: string;
@@ -25,7 +23,9 @@ export interface PaymentResponse {
  */
 export function getPaymentUrl(config?: CentralizedPaymentConfig): string {
   const envUrl = process.env.GATE_PAY_CENTRALIZED_PAYMENT_URL?.trim();
-  return envUrl || config?.paymentUrl || DEFAULT_PAYMENT_URL;
+  if (envUrl) return envUrl;
+  if (config?.paymentUrl) return config.paymentUrl;
+  return getEnvConfig().centralizedPaymentUrl;
 }
 
 /**
@@ -33,7 +33,9 @@ export function getPaymentUrl(config?: CentralizedPaymentConfig): string {
  */
 export function getClientId(config?: CentralizedPaymentConfig): string {
   const envClientId = process.env.GATE_PAY_CLIENT_ID?.trim();
-  return envClientId || config?.clientId || DEFAULT_CLIENT_ID;
+  if (envClientId) return envClientId;
+  if (config?.clientId) return config.clientId;
+  return getEnvConfig().paymentClientId;
 }
 
 /**

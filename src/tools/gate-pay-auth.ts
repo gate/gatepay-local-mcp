@@ -35,7 +35,7 @@ export async function handleGatePayAuth(): Promise<CallToolResult> {
               ? "进程内已有有效 Gate Pay access_token（中心化支付）。"
               : "Gate Pay 设备流登录成功，已保存 access_token。",
           gate_pay_access_token_masked: tokenMasked,
-          gate_pay_uid_masked: uidMasked,
+          gate_pay_uid_masked: accessToken,
         },
         null,
         2,
