@@ -4,12 +4,13 @@
 
 ## Features
 
-- **5 MCP Tools** for flexible X402 payment workflows
+- **7 MCP Tools** covering order placement, signature flows, quick wallet / Gate Pay auth, and centralized payment retries
 - Built-in X402 payment flow under `src/x402/`
 - **Multiple signing modes**: `local_private_key`, `quick_wallet`, `plugin_wallet`
 - **Multi-chain support**: EVM (Ethereum, Base, Polygon, etc.) and Solana
 - Works with Cursor, Claude Desktop, and other MCP clients
 - Auto-selects the first ready signing mode if not specified
+- Gate Pay centralized payment (`sign_mode: centralized_payment`) and `x402_centralized_payment` helper for merchant-side settlement
 
 ## Available Tools
 
@@ -114,6 +115,35 @@ Pre-authorize with Quick Wallet using device-flow OAuth (Google or Gate account)
 
 ---
 
+### 6. `x402_gate_pay_auth`
+
+Complete the Gate Pay OAuth device flow (browser authorize URL + localhost callback + remote token exchange) and cache the resulting access token/UID for centralized payments.
+
+**Use case**: Required before calling `x402_submit_payment` with `sign_mode: centralized_payment` or when preparing to use `x402_centralized_payment`.
+
+**Parameters**: _None_
+
+**Returns**: Current authorization status with masked Gate Pay UID and access token indicators.
+
+---
+
+### 7. `x402_centralized_payment`
+
+Parse the Base64-encoded `PAYMENT-REQUIRED` header and complete the Gate Pay centralized payment flow without submitting a `PAYMENT-SIGNATURE`.
+
+**Use case**: When a merchant expects Gate Pay centralized settlement (e.g., OTA or off-chain marketplace) and you prefer an all-in-one helper instead of crafting `PAYMENT-SIGNATURE`.
+
+**Parameters**:
+```typescript
+{
+  payment_required_header: string; // Base64-encoded PAYMENT-REQUIRED header (required)
+}
+```
+
+**Returns**: Payment confirmation including `prepayId`, `merchantTradeNo`, currency, amount, and the raw API response.
+
+---
+
 ## Workflow Examples
 
 ### Single-Step Workflow (Recommended)
@@ -139,17 +169,28 @@ Pre-authorize with Quick Wallet using device-flow OAuth (Google or Gate account)
 3. x402_sign_payment        → Sign and submit (using quick_wallet)
 ```
 
+### Centralized Payment (Gate Pay)
+
+```
+1. x402_gate_pay_auth       → Browser OAuth + token exchange (repeat when token expires)
+2. x402_place_order         → Receive PAYMENT-REQUIRED header that encodes Gate Pay order info
+3. x402_submit_payment      → Use payment_signature + sign_mode: "centralized_payment" to call the merchant with Authorization: Bearer
+   或
+3. x402_centralized_payment → Pass payment_required_header directly for all-in-one centralized settlement
+```
+
 ## Signing Modes
 
-The server supports three signing modes with automatic selection:
+The server supports three automatic signing modes plus a dedicated Gate Pay centralized mode:
 
-| `sign_mode`         | Status                                        | Networks    | Description                                                              |
-| ------------------- | --------------------------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `local_private_key` | Ready when `EVM_PRIVATE_KEY` / `SVM_PRIVATE_KEY` set | EVM, Solana | Signs locally with your private keys (no external dependencies)          |
-| `quick_wallet`      | Ready after OAuth login                       | EVM, Solana | Custodial MCP wallet with device-flow login (Google/Gate account)        |
-| `plugin_wallet`     | Ready when `PLUGIN_WALLET_TOKEN` set          | EVM, Solana | Browser extension wallet (e.g., Gate Wallet) via MCP bridge              |
+| `sign_mode`             | Status                                        | Networks / Scope | Description                                                                                     |
+| ----------------------- | --------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
+| `local_private_key`     | Ready when `EVM_PRIVATE_KEY` / `SVM_PRIVATE_KEY` set | EVM, Solana      | Signs locally with your private keys (no external dependencies)                                 |
+| `quick_wallet`          | Ready after OAuth login                       | EVM, Solana      | Custodial MCP wallet with device-flow login (Google/Gate account)                               |
+| `plugin_wallet`         | Ready when `PLUGIN_WALLET_TOKEN` set          | EVM, Solana      | Browser extension wallet (e.g., Gate Wallet) via MCP bridge                                     |
+| `centralized_payment`   | Ready after `x402_gate_pay_auth` completes    | Gate Pay         | Adds `Authorization: Bearer <Gate Pay access_token>` when calling `x402_submit_payment` or use `x402_centralized_payment` |
 
-**Priority Order** (when `sign_mode` is omitted):
+**Priority Order** (auto-selection applies to the first three rows when `sign_mode` is omitted):
 1. `plugin_wallet` (priority: 30) - if token configured
 2. `quick_wallet` (priority: 20) - if MCP endpoint configured  
 3. `local_private_key` (priority: 10) - if private keys configured
@@ -231,6 +272,34 @@ Sign with browser extension wallet (e.g., Gate Wallet):
 - Requires the wallet extension to be installed and running
 - User confirms transactions in the browser extension
 
+### 4. Gate Pay Centralized Payment (Browser OAuth)
+
+Use this when merchants expect Gate Pay centralized settlement instead of user-owned signatures.
+
+```json
+{
+  "mcpServers": {
+    "gatepay-mcp": {
+      "command": "npx",
+      "args": ["-y", "gatepay-local-mcp"],
+      "env": {
+        "GATE_PAY_OAUTH_CLIENT_ID": "your-gate-pay-client-id",
+        "GATE_PAY_OAUTH_CLIENT_SECRET": "your-gate-pay-client-secret",
+        "GATE_PAY_OAUTH_BACKEND_ORIGIN": "https://www.gate.com/apiw/v2/mcp/oauth",
+        "GATE_PAY_ACCOUNT_AUTHORIZE_ORIGIN": "https://gate.com",
+        "GATE_PAY_OAUTH_CALLBACK_PORT": "18473",
+        "GATE_PAY_CENTRALIZED_PAYMENT_URL": "https://api.gateio.ws/api/v4/pay/ai/order/pay",
+        "GATE_PAY_CLIENT_ID": "your-gate-pay-client-id"
+      }
+    }
+  }
+}
+```
+
+- Run `x402_gate_pay_auth` once per token lifecycle; it opens the Gate consent page and exchanges the code automatically.
+- Use `x402_submit_payment` with `sign_mode: "centralized_payment"` after you create a `PAYMENT-SIGNATURE`, or
+- Call `x402_centralized_payment` directly with the Base64 `PAYMENT-REQUIRED` header when you prefer a single-step helper.
+
 ### Cursor / Claude Desktop with plugin wallet
 
 If you want to use a browser extension wallet (like Gate Wallet) for signing, configure the plugin wallet mode:
@@ -269,6 +338,23 @@ The server loads `.env` from the repository or package root at startup.
 | `QUICK_WALLET_MCP_URL`    | `quick_wallet`      | MCP wallet endpoint URL (default: `https://walletmcp.gate.com/mcp`)         |
 | `QUICK_WALLET_API_KEY`    | `quick_wallet`      | API key for MCP wallet service (optional)                                   |
 | `PLUGIN_WALLET_TOKEN`     | `plugin_wallet`     | MCP token from browser extension wallet                                     |
+
+### Gate Pay Centralized Payment
+
+| Variable                          | Description                                                                                   |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `GATE_PAY_OAUTH_CLIENT_ID`        | Gate Pay OAuth client id used for device authorization and token exchange                     |
+| `GATE_PAY_OAUTH_CLIENT_SECRET`    | Client secret required when exchanging the authorization code for an access token             |
+| `GATE_PAY_OAUTH_BACKEND_ORIGIN`   | Base URL for the OAuth backend that hosts the token/refresh endpoints                         |
+| `GATE_PAY_ACCOUNT_AUTHORIZE_ORIGIN` | Domain that serves the Gate Pay authorization page (opens in the browser)                     |
+| `GATE_PAY_OAUTH_CALLBACK_PORT`    | Local port used to receive the OAuth redirect (set to `0` for a random port if needed)        |
+| `GATE_PAY_OAUTH_SCOPE`            | OAuth scope requested during device/login flow                                                |
+| `GATE_PAY_OAUTH_AUTHORIZE_USER_AGENT` | Custom User-Agent for the authorization preflight (defaults to `gateio/web`)                 |
+| `GATE_PAY_CENTRALIZED_PAYMENT_URL`| HTTPS endpoint for submitting centralized payments via Gate Pay                               |
+| `GATE_PAY_CLIENT_ID`              | Merchant client id embedded in centralized payment payloads                                   |
+| `GATE_PAY_OAUTH_TOKEN_BASE_URL`   | Optional: origin used to derive default token and refresh endpoints                           |
+| `GATE_PAY_OAUTH_TOKEN_URL`        | Optional: explicit token endpoint path override                                               |
+| `GATE_PAY_OAUTH_REFRESH_URL`      | Optional: explicit refresh endpoint path override                                             |
 
 ### Test and Script Variables
 
@@ -340,10 +426,38 @@ The server loads `.env` from the repository or package root at startup.
 }
 ```
 
+### Example 4: Gate Pay Centralized Payment
+
+```json
+// Step 1: Run OAuth (opens Gate authorize page)
+{ "tool": "x402_gate_pay_auth", "arguments": {} }
+
+// Step 2a: Use centralized helper
+{
+  "tool": "x402_centralized_payment",
+  "arguments": {
+    "payment_required_header": "<base64-from-place_order>"
+  }
+}
+
+// Step 2b: Or submit with sign_mode: centralized_payment
+{
+  "tool": "x402_submit_payment",
+  "arguments": {
+    "url": "https://api.example.com/order",
+    "method": "POST",
+    "payment_signature": "<base64-from-create_signature>",
+    "sign_mode": "centralized_payment"
+  }
+}
+```
+
 ## Agent Skill
 
+- `skills/SKILL.md` contains the `gatepay-x402` skill manifest and prompts so MCP-aware IDEs (Cursor, Claude Desktop, Codex CLI, etc.) know how to call every tool exposed by this server.
+- `skills/gatepay-x402.md` (mirrored at `docs/gatepay-x402.md`) is a natural-language installation guide. Share that link with your AI host for a “one-click” experience: the host can follow the steps to download `gatepay-local-mcp`, register it in `mcpServers`, and copy the `gatepay-x402` skill into its skills directory automatically.
 
-For AI agents that orchestrate x402 payments, wallet setup, and merchant discovery, this repository ships an **[Agent Skill](gatepay-local-mcp/skills/SKILL.md at master · gate/gatepay-local-mcp)** at [`skills/SKILL.md`]. Install it in your host’s skills directory or point auto-update at the raw file on your default branch. **Tool names and arguments always follow each tool’s MCP `inputSchema`** on the server you connected; the skill may describe flows that apply across builds, while this package’s exposed tools depend on the version you run (e.g. the minimal npm build exposes `x402_request` only—see the tool list in your client).
+Tool names and arguments always match each tool’s MCP `inputSchema` on the server you connect to; check your client’s tool list if you ship a trimmed build.
 
 ## Development
 
