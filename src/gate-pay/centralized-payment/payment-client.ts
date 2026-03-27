@@ -48,13 +48,19 @@ export async function submitCentralizedPayment(
 ): Promise<PaymentResponse> {
   const url = getPaymentUrl(config);
   const clientId = getClientId(config);
+
+  // USD Coin 是签名要用的币种，中心化支付只认USDC
+  let payCurrency = paymentInfo.payCurrency;
+  if (payCurrency === "USD Coin") {
+    payCurrency = "USDC";
+  }
   
   const payload = {
     prepayId: paymentInfo.prepayId,
     merchantTradeNo: paymentInfo.merchantTradeNo,
-    currency: paymentInfo.currency,
+    currency: payCurrency,
     totalFee: paymentInfo.totalFee,
-    payCurrency: paymentInfo.payCurrency,
+    payCurrency: payCurrency,
     payAmount: paymentInfo.payAmount,
     uid: paymentInfo.uid,
   };
