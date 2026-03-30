@@ -5,6 +5,12 @@
 import type { ExtractedPaymentInfo } from "./parser.js";
 import { getEnvConfig } from "../../config/env-config.js";
 
+/** 中心化支付业务成功码（与 HTTP 状态无关） */
+function isCentralizedPaymentSuccessCode(code: string | number | undefined): boolean {
+  if (code === undefined) return true;
+  return code === 200 || code === "200" || code === "000000";
+}
+
 export interface CentralizedPaymentConfig {
   paymentUrl?: string;
   clientId?: string;
@@ -109,28 +115,11 @@ export async function submitCentralizedPayment(
         }
       }
       
-      // 情况2: code 不等于 200 或 "200"
-      const code = (data as { code?: string | number }).code;
-      if (code !== undefined && code !== 200 && code !== "200") {
-        const errorMsg = 
-          (data as { errorMessage?: string }).errorMessage ||
-          (data as { label?: string }).label ||
-          (data as { message?: string }).message ||
-          `Business error: code ${code}`;
-        return {
-          success: false,
-          error: errorMsg,
-          statusCode: response.status,
-          responseBody,
-          data,
-        };
-      }
-      
-      // 情况3: status 为 FAIL
+      // 情况2: status 为 FAIL / ERROR（成功时为 SUCCESS）
       const status = (data as { status?: string }).status;
       if (status === "FAIL" || status === "ERROR") {
-        const errorMsg = 
-          (data as { errorMessage?: string }).errorMessage ||
+        const errorMsg =
+          (data as { errorMessage?: string }).errorMessage?.trim() ||
           (data as { label?: string }).label ||
           (data as { message?: string }).message ||
           "Request failed";
@@ -142,13 +131,30 @@ export async function submitCentralizedPayment(
           data,
         };
       }
-      
-      // 情况4: 直接有 errorMessage 字段
-      const errorMessage = (data as { errorMessage?: string }).errorMessage;
+
+      // 情况3: errorMessage 非空（成功时多为 ""）
+      const errorMessage = (data as { errorMessage?: string }).errorMessage?.trim();
       if (errorMessage) {
         return {
           success: false,
           error: errorMessage,
+          statusCode: response.status,
+          responseBody,
+          data,
+        };
+      }
+
+      // 情况4: code 非成功码（成功示例: "000000"，兼容 200 / "200"）
+      const code = (data as { code?: string | number }).code;
+      if (!isCentralizedPaymentSuccessCode(code)) {
+        const errorMsg =
+          (data as { errorMessage?: string }).errorMessage?.trim() ||
+          (data as { label?: string }).label ||
+          (data as { message?: string }).message ||
+          `Business error: code ${code}`;
+        return {
+          success: false,
+          error: errorMsg,
           statusCode: response.status,
           responseBody,
           data,
