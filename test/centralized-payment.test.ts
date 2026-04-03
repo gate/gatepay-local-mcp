@@ -46,13 +46,13 @@ try {
   
   // 验证期望的输出
   const expected = {
-    "prepayId": "82967300620550384",
-    "merchantTradeNo": "ORD-45B88F8B",
-    "currency": "USDC",
-    "totalFee": "10",
-    "payCurrency": "USDC",
-    "payAmount": "10",
-    "uid": "10002"
+    prepayId: "82970833231151104",
+    merchantTradeNo: "ORD-0AB663F2",
+    currency: "USDC",
+    totalFee: "0.02",
+    payCurrency: "USDC",
+    payAmount: "0.02",
+    uid: "10002",
   };
   
   console.log("4. 验证输出是否符合预期:");

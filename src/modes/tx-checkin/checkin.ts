@@ -3,6 +3,7 @@ import http from "http";
 import { URL } from "url";
 import { randomFillSync } from "crypto";
 
+import { getEnvConfig } from "../../config/env-config.js";
 import { SOURCE_AI_AGENT } from "./body.js";
 import { printCurlReplayToStderr } from "./curl_cmd.js";
 import { parseCheckInResponseBody, resultFromEnvelope, SuccessOut } from "./response.js";
@@ -11,7 +12,6 @@ import { apiSignPreimage, apiSignFromPreimage, encodePathAndQuery } from "./sign
 // ---------- 常量 ----------
 
 const CONTENT_TYPE_JSON = "application/json; charset=utf-8";
-const DEFAULT_GATEWAY_BASE_URL = "https://test-api.web3gate.io/api/app/v1/web3-gv-api";
 const CHECKIN_PATH = "/api/v1/tx/checkin";
 
 // ---------- 入参类型 ----------
@@ -162,7 +162,7 @@ export async function txCheckin(params: CheckInParams): Promise<SuccessOut> {
   const rawToken = stripBearerPrefix(params.mcpToken);
   if (!rawToken) throw new Error("mcpToken 不能为空");
 
-  const baseURL = (params.gatewayBaseURL ?? DEFAULT_GATEWAY_BASE_URL).replace(/\/$/, "");
+  const baseURL = (params.gatewayBaseURL ?? getEnvConfig().gvBaseUrl).replace(/\/$/, "");
   const method = "POST";
 
   // 构建 body

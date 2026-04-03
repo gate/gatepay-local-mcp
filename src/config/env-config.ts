@@ -23,7 +23,7 @@ export interface EnvironmentConfig {
   // 钱包服务
   quickWalletServerUrl: string;
   pluginWalletServerUrl: string;
-
+  gvBaseUrl: string;
   // 其他配置
   oauthScope: string;
   oauthAuthorizeUserAgent: string;
@@ -46,6 +46,7 @@ const TEST_CONFIG: EnvironmentConfig = {
 
   // 钱包服务
   quickWalletServerUrl: "https://wallet-service-mcp-test.gateweb3.cc/mcp",
+  gvBaseUrl: "https://test-api.web3gate.io/api/app/v1/web3-gv-api",
   pluginWalletServerUrl: "https://walletmcp-test.gateweb3.cc/mcp",
 
   // 其他配置
@@ -71,6 +72,7 @@ const PRD_CONFIG: EnvironmentConfig = {
   // 钱包服务
   quickWalletServerUrl: "https://api.gatemcp.ai/mcp/dex",
   pluginWalletServerUrl: "https://walletmcp.gate.com/mcp",
+  gvBaseUrl: "https://webapi.w3-api.com/api/web/v1/web3-gv-api/",
 
   // 其他配置
   oauthScope: "read_profile",
@@ -127,6 +129,8 @@ export function getEnvConfig(): EnvironmentConfig {
       process.env.QUICK_WALLET_SERVER_URL?.trim() || baseConfig.quickWalletServerUrl,
     pluginWalletServerUrl:
       process.env.PLUGIN_WALLET_SERVER_URL?.trim() || baseConfig.pluginWalletServerUrl,
+    gvBaseUrl:
+      process.env.GATE_PAY_GV_BASE_URL?.trim() || baseConfig.gvBaseUrl,
 
     // 其他配置
     oauthScope: process.env.GATE_PAY_OAUTH_SCOPE?.trim() || baseConfig.oauthScope,

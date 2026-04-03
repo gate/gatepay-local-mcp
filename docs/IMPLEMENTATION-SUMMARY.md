@@ -30,7 +30,7 @@
 
 ### 修复的Linter错误
 
-4. **test/pluginWallet.ts**
+4. **test/pluginWallet.test.ts**
    - 移除未使用的 `existsSync` 导入
 
 5. **test/mcp-x402-request-tool.ts**

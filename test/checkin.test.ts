@@ -1,5 +1,8 @@
 import { txCheckin } from "../src/modes/tx-checkin/checkin.js";
 
+// 与 env-config 一致：未设置 GATE_PAY_ENV 时全局默认是 prd；本脚本面向测试网关，故默认 test（可用环境变量覆盖）
+process.env.GATE_PAY_ENV ??= "test";
+
 const mcpToken = "mcp_pat_eyJzdWIiOiJjNTk1MDQyNy1iYzlkLTQyNDgtYjA5ZS0yYzI0MWYyYTY0Y2EiLCJ1c2VyX2lkIjoiYzU5NTA0MjctYmM5ZC00MjQ4LWIwOWUtMmMyNDFmMmE2NGNhIiwiYWNjb3VudF9pZCI6IjYwMmEzOGMyLTUyNGItNDhjNi1hY2Q0LWI5Mjg4NDYyODkyZCIsImlhdCI6MTc3NTE0MTU5MCwiZXhwIjoxNzc3NzMzNTkwLCJqdGkiOiIxOTVhM2I5OS02MGU0LTQyYzctOGVkZi04MTFjZTBmMDY1OWYifQ.EDs9fn6wqVJTvEyPunf5Xo5HTF0UqWpjW2qzN0s4kgk";
 
 const result = await txCheckin({

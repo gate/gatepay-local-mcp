@@ -360,8 +360,8 @@ The server loads `.env` from the repository or package root at startup.
 
 | Variable                      | Used By                         | Default                 | Description                                     |
 | ----------------------------- | ------------------------------- | ----------------------- | ----------------------------------------------- |
-| `RESOURCE_SERVER_URL`         | `test/privateKey.ts`            | `http://localhost:8080` | Base URL for the local private-key flow test    |
-| `ENDPOINT_PATH`               | `test/privateKey.ts`            | `/flight/order`         | Endpoint path appended to `RESOURCE_SERVER_URL` |
+| `RESOURCE_SERVER_URL`         | `test/privateKey.test.ts`       | `http://localhost:8080` | Base URL for the local private-key flow test    |
+| `ENDPOINT_PATH`               | `test/privateKey.test.ts`       | `/flight/order`         | Endpoint path appended to `RESOURCE_SERVER_URL` |
 | `GATEPAY_MCP_TEST_TIMEOUT_MS` | `test/mcp-x402-request-tool.ts` | `180000`                | Timeout for the MCP tool integration test       |
 
 ## Usage Examples
@@ -480,20 +480,20 @@ npm run test:unit
 # run the local private key flow test
 npm run test:privateKey
 
-# run the MCP tool integration test
-npm run test:mcp-tool
+# MCP / x402 集成探针（需 build 后 dist）
+npm run test:split-tools
 ```
 
 ### Integration test notes
 
-`npm run test:mcp-tool` starts `dist/src/index.js` and calls `x402_request` against the configured remote wallet flow. The test requires proper wallet credentials to be configured.
+`npm run test:split-tools` 会启动 `dist/src/index.js` 并走拆分后的 x402 工具链；需要已构建产物、网络与钱包配置。`npm run test:quickWallet` 等脚本用于各签名模式的本地联调。
 
 ```bash
 npm run build
-npm run test:mcp-tool
+npm run test:split-tools
 ```
 
-If you already logged in before, the saved token in `~/.gate-pay/auth.json` will be reused. Otherwise the quick wallet flow may require interactive device login. You can increase the timeout with `GATEPAY_MCP_TEST_TIMEOUT_MS`.
+Quick Wallet 等设备流登录脚本若需交互，请直接在终端运行对应 `npm run test:*`。可将 `GATEPAY_MCP_TEST_TIMEOUT_MS` 调大以应对慢网络。
 
 ## License
 

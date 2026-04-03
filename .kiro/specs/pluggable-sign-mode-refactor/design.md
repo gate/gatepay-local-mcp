@@ -448,8 +448,8 @@ interface PayFetchFactory {
 - 显式指定不可用 mode 时不回退到其他 mode。
 
 ### E2E and Script Validation
-- 复用现有 `test/privateKey.ts`、`test/mcp-x402-request-tool.ts`，按新参数改造。
-- 保留 `test/pluginWallet.ts` 作为未来 mode 接入的协议探针。
+- 复用现有 `test/privateKey.test.ts`、`test/split-tools.test.ts` 等，按新参数改造。
+- 保留 `test/pluginWallet.test.ts` 作为未来 mode 接入的协议探针。
 
 ### Performance and Concurrency
 - 验证同一 mode 并发请求共享初始化 Promise。

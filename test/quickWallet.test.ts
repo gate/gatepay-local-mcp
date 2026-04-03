@@ -31,7 +31,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 config({ path: join(packageRoot, ".env") });
 
-const DEFAULT_QUICK_WALLET_URL = "https://wallet-service-mcp-test.gateweb3.cc/mcp";
+// https://wallet-service-mcp-test.gateweb3.cc/mcp
+// https://api.gatemcp.ai/mcp/dex
+const DEFAULT_QUICK_WALLET_URL = "https://api.gatemcp.ai/mcp/dex";
 
 const REQUEST = {
   url: "https://webws.gate.io:443/flight/order",

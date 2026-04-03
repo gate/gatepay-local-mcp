@@ -125,6 +125,7 @@ export class QuickWalletMode implements SignModeDefinition {
       context,
     );
 
+    // todo 待回滚
     // if (authPhase === "login_succeeded") {
     //   const addresses = await getQuickWalletAddressPayload(mcp);
     //   throw new Error(
