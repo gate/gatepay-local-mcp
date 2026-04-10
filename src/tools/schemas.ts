@@ -47,9 +47,8 @@ export const X402_REQUEST_INPUT_SCHEMA = {
  * @internal
  */
 export const X402_REQUEST_DESCRIPTION =
-  "Execute a single HTTP request with automatic x402 payment on 402. Use ONLY for endpoints that require payment (402). " +
-  "Set sign_mode to choose a signing mode, or omit it to auto-select the highest-priority ready mode. " +
-  "IMPORTANT: If a payment fails, do NOT automatically retry with a different sign_mode. Instead, ask the user which payment method they would like to try.";
+  "[Write] Legacy: one HTTP call with automatic 402 handling; prefer public tools for new flows. " +
+  "If payment fails, ask the user before retrying with another sign_mode.";
 
 // ============================================================================
 // x402_place_order
@@ -76,9 +75,8 @@ export const PLACE_ORDER_INPUT_SCHEMA = {
 };
 
 export const PLACE_ORDER_DESCRIPTION =
-  "Send an HTTP request and return complete response information including headers, body, and the original request details. " +
-  "Returns status code, all response headers (including PAYMENT-REQUIRED if present), response body, and the original request parameters. " +
-  "Use this for any HTTP request where you need full response details.";
+  "[HTTP] Fetches or posts to a URL and returns status, headers, and body without automatic 402 handling. " +
+  "For 402 paywalls use sign_payment, or create_signature then submit_payment—not this tool.";
 
 // ============================================================================
 // x402_sign_payment
@@ -125,11 +123,9 @@ export const SIGN_PAYMENT_INPUT_SCHEMA = {
 };
 
 export const SIGN_PAYMENT_DESCRIPTION =
-  "Parse X402 payment requirements from PAYMENT-REQUIRED header or response body, create a signed payment authorization, " +
-  "and submit the payment to complete a 402-protected request. " +
-  "Supports signing modes: local_private_key (local EVM wallet), quick_wallet (custodial MCP wallet), and plugin_wallet (browser extension wallet). " +
-  "For centralized payment (中心化支付), obtain Gate Pay access_token via x402_gate_pay_auth and use x402_submit_payment with sign_mode centralized_payment — no MCP calls for Gate Pay auth. " +
-  "Provide either payment_required_header or response_body containing X402 payment requirements.";
+  "[Write] Parses 402 requirements, signs via sign_mode, and resubmits the merchant request. " +
+  "Split flow: create_signature then submit_payment. Gate Pay Bearer: gate_pay_auth then submit_payment with sign_mode centralized_payment. " +
+  "Needs payment_required_header or response_body. Side effect: may open browser; on failure ask before changing sign_mode.";
 
 // ============================================================================
 // x402_create_signature
@@ -160,12 +156,9 @@ export const CREATE_SIGNATURE_INPUT_SCHEMA = {
   required: [],
 };
 
-export const CREATE_SIGNATURE_DESCRIPTION = 
-  "Parse X402 payment requirements and create a signed payment authorization. " +
-  "Returns the complete payment payload including signature and the base64-encoded " +
-  "PAYMENT-SIGNATURE header value. Supports signing modes: local_private_key, " +
-  "quick_wallet, and plugin_wallet. The output can be used with x402_submit_payment " +
-  "to complete the payment request.";
+export const CREATE_SIGNATURE_DESCRIPTION =
+  "[Write] Builds PAYMENT-SIGNATURE from 402 requirements without resubmitting the merchant HTTP call. " +
+  "Then submit_payment with the same url, method, and body. One-shot alternative: sign_payment.";
 
 // ============================================================================
 // x402_submit_payment
@@ -194,7 +187,7 @@ export const SUBMIT_PAYMENT_INPUT_SCHEMA = {
     sign_mode: {
       type: "string",
       description:
-        "When set to centralized_payment (中心化支付), completes Gate Pay OAuth (browser + localhost callback + remote token) if needed and sends Authorization: Bearer <Gate Pay access_token> with the request. Other modes omit this header.",
+        "If centralized_payment: attach Gate Pay Bearer access_token (OAuth via gate_pay_auth if needed). Otherwise omit.",
       enum: ["centralized_payment"],
     },
   },
@@ -202,11 +195,8 @@ export const SUBMIT_PAYMENT_INPUT_SCHEMA = {
 };
 
 export const SUBMIT_PAYMENT_DESCRIPTION =
-  "Submit a signed payment to complete a 402-protected request. Takes the " +
-  "payment_signature from x402_create_signature and sends it to the merchant " +
-  "along with the original request. " +
-  "When sign_mode is centralized_payment, runs Gate Pay OAuth (local callback + remote token exchange) if needed, same as x402_gate_pay_auth, no MCP, and attaches Authorization: Bearer <Gate Pay access_token>. " +
-  "Returns the final response from the merchant.";
+  "[Write] Retries the original HTTP call with payment_signature from create_signature. " +
+  "sign_mode centralized_payment adds Gate Pay Bearer; run gate_pay_auth first if token missing. Returns merchant response.";
 
 // ============================================================================
 // x402_gate_pay_auth
@@ -219,10 +209,8 @@ export const GATE_PAY_AUTH_INPUT_SCHEMA = {
 };
 
 export const GATE_PAY_AUTH_DESCRIPTION =
-  "When the user chooses centralized_payment (中心化支付), run this tool to complete Gate Pay OAuth: browser opens Gate authorize URL, redirect hits localhost callback, then the client exchanges the code for access_token via the remote OAuth backend (GATE_PAY_OAUTH_TOKEN_BASE_URL, etc.). " +
-  "Stores access_token in-process for Authorization: Bearer on x402_submit_payment when sign_mode is centralized_payment. " +
-  "Success JSON includes gate_pay_access_token_masked and gate_pay_uid_masked (脱敏). " +
-  "Wallet MCP login (x402_quick_wallet_auth) is separate and not used for Gate Pay.";
+  "[Write] Gate Pay OAuth (browser + localhost callback + token exchange); caches access_token for submit_payment with sign_mode centralized_payment. " +
+  "Not quick_wallet MCP login—use quick_wallet_auth. Side effect: opens browser; response has masked token and uid.";
 
 // ============================================================================
 // x402_quick_wallet_auth
@@ -242,10 +230,8 @@ export const QUICK_WALLET_AUTH_INPUT_SCHEMA = {
 };
 
 export const QUICK_WALLET_AUTH_DESCRIPTION =
-  "When the user selects sign_mode quick_wallet, run this tool first to perform the same device-flow login/authorization as the quick_wallet signing path. " +
-  "If the in-process MCP token is already valid, returns ready status and wallet addresses; otherwise opens the browser flow (Gate by default, or Google if wallet_login_provider is google). " +
-  "After a fresh login succeeds, the user may need to confirm before continuing to payment. " +
-  "To switch authorization provider (e.g. Gate vs Google), restart the MCP server; the in-process wallet client keeps the current session until restart.";
+  "[Write] Device-flow login for quick_wallet when MCP token is missing or expired; returns readiness and addresses. " +
+  "Not for Gate Pay centralized_payment—use gate_pay_auth. May open browser; provider switch may need MCP restart.";
 
 // ============================================================================
 // x402_centralized_payment
@@ -263,11 +249,8 @@ export const CENTRALIZED_PAYMENT_INPUT_SCHEMA = {
 };
 
 export const CENTRALIZED_PAYMENT_DESCRIPTION =
-  "Execute centralized payment (中心化支付) by parsing PAYMENT-REQUIRED header, extracting payment information, " +
-  "and calling the Gate Pay centralized payment API. " +
-  "Automatically handles Gate Pay OAuth authentication if needed (same as x402_gate_pay_auth). " +
-  "Parses amount (converts from smallest unit by dividing by 10^6), currency, prepayId, and orderId from the header. " +
-  "Returns payment result including transaction details.";
+  "[Write] Gate Pay centralized checkout from PAYMENT-REQUIRED; OAuth auto if needed. " +
+  "For wallet-signed x402 on merchant HTTP use sign_payment or create_signature + submit_payment.";
 
 // ============================================================================
 // Public Tools Registry
