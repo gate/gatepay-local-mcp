@@ -36,9 +36,9 @@ config({ path: join(packageRoot, ".env") });
 const DEFAULT_QUICK_WALLET_URL = "https://api.gatemcp.ai/mcp/dex";
 
 const REQUEST = {
-  url: "https://webws.gate.io:443/flight/order",
+  url: "http://localhost:8080/flight/order",
   method: "POST" as const,
-  body: '{"flightId":"FL002","uid":"100","chain":"SOL","fullCurrType":"USDC_SOL"}',
+  body: '{"flightId":"FL001","uid":"100","chain": "MATIC","fullCurrType": "USDC_MATIC"}',
 };
 
 function buildRequestInit(method: string, body?: string): RequestInit {

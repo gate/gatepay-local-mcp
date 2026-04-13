@@ -93,6 +93,7 @@ export async function handleCreateSignature(
     let paymentPayload: PaymentPayload;
     try {
       paymentPayload = await client.createPaymentPayload(paymentRequired);
+      paymentPayload.extensions = {...paymentRequired.extensions, signMode: selectedMode.mode.id}
     } catch (error) {
       return createErrorResponse(
         `创建支付payload失败: ${error instanceof Error ? error.message : String(error)}`

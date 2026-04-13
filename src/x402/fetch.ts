@@ -3,13 +3,16 @@
  */
 import type { PaymentPayload, PaymentRequired } from "./types.js";
 import type { X402ClientStandalone } from "./client.js";
+import type { SignModeId } from "../modes/types.js";
 import { getPaymentRequiredResponse, encodePaymentSignatureHeader } from "./http.js";
 import { normalizePaymentRequirements } from "./utils.js";
 
 export function wrapFetchWithPayment(
   fetchFn: typeof globalThis.fetch,
   client: X402ClientStandalone,
+  options?: { signModeId?: SignModeId },
 ): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  const signModeId = options?.signModeId;
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     const clonedRequest = request.clone();
@@ -43,6 +46,10 @@ export function wrapFetchWithPayment(
     try {
       console.error("paymentRequired", paymentRequired);
       paymentPayload = await client.createPaymentPayload(paymentRequired);
+      paymentPayload.extensions = {
+        ...paymentPayload.extensions,
+        ...(signModeId !== undefined ? { signMode: signModeId } : {}),
+      };
     } catch (error) {
       throw new Error(
         `Failed to create payment payload: ${error instanceof Error ? error.message : "Unknown error"}`,
