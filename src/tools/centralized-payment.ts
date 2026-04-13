@@ -27,7 +27,15 @@ export async function handleCentralizedPayment(
     if (!paymentRequiredHeader) {
       return createErrorResponse("缺少必需参数 payment_required_header（Base64 编码的 PAYMENT-REQUIRED header）。");
     }
-    
+
+    const resourceUrl =
+      args.resource_url != null ? String(args.resource_url).trim() : "";
+    if (!resourceUrl || !resourceUrl.startsWith("http")) {
+      return createErrorResponse(
+        "缺少或无效参数 resource_url（需完整 http/https URL，与 x402_place_order 的 url 相同要求）。"
+      );
+    }
+
     // 2. 解析 PAYMENT-REQUIRED header
     let paymentData;
     try {
@@ -72,22 +80,42 @@ export async function handleCentralizedPayment(
       );
     }
     
-    // 6. 返回成功结果
+    // 6. Retry merchant resource_url with X-GatePay-Centralized-Merchant-No after successful pay
+    const methodRaw =
+      args.method != null ? String(args.method).toUpperCase() : "POST";
+    const method = ["GET", "POST", "PUT", "PATCH"].includes(methodRaw)
+      ? methodRaw
+      : "POST";
+    const bodyStr =
+      args.body != null && String(args.body).trim() !== ""
+        ? String(args.body)
+        : undefined;
+    const hasJsonBody =
+      bodyStr !== undefined &&
+      (method === "POST" || method === "PUT" || method === "PATCH");
+    const headers: Record<string, string> = {
+      "X-GatePay-Centralized-Merchant-No": paymentInfo.merchantTradeNo,
+    };
+    if (hasJsonBody) {
+      headers["Content-Type"] = "application/json";
+    }
+    const init: RequestInit = { method, headers };
+    if (hasJsonBody) {
+      init.body = bodyStr;
+    }
+    const resourceResponse = await fetch(resourceUrl, init);
+    const resourceBody = await resourceResponse.text();
+
+    // 7. 返回成功结果
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify({
-            success: true,
-            message: "中心化支付成功",
-            paymentInfo: {
-              prepayId: paymentInfo.prepayId,
-              merchantTradeNo: paymentInfo.merchantTradeNo,
-              currency: paymentInfo.currency,
-              amount: paymentInfo.totalFee,
-            },
-            response: paymentResponse.data,
-          }, null, 2),
+          text: JSON.stringify(
+            resourceBody,
+            null,
+            2
+          ),
         },
       ],
     };

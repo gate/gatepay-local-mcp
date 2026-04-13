@@ -242,15 +242,30 @@ export const CENTRALIZED_PAYMENT_INPUT_SCHEMA = {
   properties: {
     payment_required_header: {
       type: "string",
-      description: "Base64-encoded PAYMENT-REQUIRED header value containing payment information",
+      description: "Base64 PAYMENT-REQUIRED from the 402 response.",
+    },
+    resource_url: {
+      type: "string",
+      description:
+        "Full merchant URL after Gate Pay succeeds (same rules as x402_place_order url). Sends X-GatePay-Centralized-Merchant-No = merchantTradeNo.",
+    },
+    method: {
+      type: "string",
+      description: "HTTP method: GET, POST, PUT, or PATCH. Default POST.",
+      enum: ["GET", "POST", "PUT", "PATCH"],
+    },
+    body: {
+      type: "string",
+      description: "JSON string request body for POST/PUT/PATCH. Omit for GET.",
     },
   },
-  required: ["payment_required_header"],
+  required: ["payment_required_header", "resource_url"],
 };
 
 export const CENTRALIZED_PAYMENT_DESCRIPTION =
-  "[Write] Gate Pay centralized checkout from PAYMENT-REQUIRED; OAuth auto if needed. " +
-  "For wallet-signed x402 on merchant HTTP use sign_payment or create_signature + submit_payment.";
+  "[Write] Parses PAYMENT-REQUIRED, charges Gate Pay centralized API; OAuth via gate_pay_auth if needed. " +
+  "Then calls resource_url (required, full http/https like x402_place_order) with X-GatePay-Centralized-Merchant-No after pay. " +
+  "Wallet-signed x402 on arbitrary HTTP → sign_payment or create_signature + submit_payment.";
 
 // ============================================================================
 // Public Tools Registry

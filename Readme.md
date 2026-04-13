@@ -137,6 +137,9 @@ Parse the Base64-encoded `PAYMENT-REQUIRED` header and complete the Gate Pay cen
 ```typescript
 {
   payment_required_header: string; // Base64-encoded PAYMENT-REQUIRED header (required)
+  resource_url: string; // Full http/https merchant URL after pay — same rules as x402_place_order `url` (required)
+  method?: "GET" | "POST" | "PUT" | "PATCH"; // default POST
+  body?: string; // JSON string for POST/PUT/PATCH; omit for GET
 }
 ```
 
@@ -176,7 +179,7 @@ Parse the Base64-encoded `PAYMENT-REQUIRED` header and complete the Gate Pay cen
 2. x402_place_order         → Receive PAYMENT-REQUIRED header that encodes Gate Pay order info
 3. x402_submit_payment      → Use payment_signature + sign_mode: "centralized_payment" to call the merchant with Authorization: Bearer
    或
-3. x402_centralized_payment → Pass payment_required_header directly for all-in-one centralized settlement
+3. x402_centralized_payment → payment_required_header + resource_url (full http/https); pays then retries merchant with X-GatePay-Centralized-Merchant-No
 ```
 
 ## Signing Modes
@@ -298,7 +301,7 @@ Use this when merchants expect Gate Pay centralized settlement instead of user-o
 
 - Run `x402_gate_pay_auth` once per token lifecycle; it opens the Gate consent page and exchanges the code automatically.
 - Use `x402_submit_payment` with `sign_mode: "centralized_payment"` after you create a `PAYMENT-SIGNATURE`, or
-- Call `x402_centralized_payment` directly with the Base64 `PAYMENT-REQUIRED` header when you prefer a single-step helper.
+- Call `x402_centralized_payment` with the Base64 `PAYMENT-REQUIRED` header plus required `resource_url` (same http/https rules as `x402_place_order`) when you prefer a single-step helper.
 
 ### Cursor / Claude Desktop with plugin wallet
 
@@ -436,7 +439,10 @@ The server loads `.env` from the repository or package root at startup.
 {
   "tool": "x402_centralized_payment",
   "arguments": {
-    "payment_required_header": "<base64-from-place_order>"
+    "payment_required_header": "<base64-from-place_order>",
+    "resource_url": "https://api.example.com/order",
+    "method": "POST",
+    "body": "{\"orderId\":\"ORD-123\"}"
   }
 }
 
