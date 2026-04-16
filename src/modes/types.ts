@@ -40,7 +40,7 @@ export interface SignModeDefinition {
 export interface BuildPayFetchInput {
   signer: ClientEvmSigner;
   solanaSigner?: ClientSvmSigner;
-  /** 写入 x402 PaymentPayload.extensions.signMode（与 sign-payment 工具一致） */
+  /** 写入 x402 PaymentPayload.extensions.signMode（与 x402_sign_payment 工具一致） */
   signModeId?: SignModeId;
 }
 

@@ -96,6 +96,7 @@ async function main(): Promise<void> {
     const toolNames = listToolsResult.tools.map((t: { name: string }) => t.name);
     assert.ok(toolNames.includes("x402_place_order"), "应该包含 x402_place_order 工具");
     assert.ok(toolNames.includes("x402_sign_payment"), "应该包含 x402_sign_payment 工具");
+    assert.ok(toolNames.includes("mppx_sign_payment"), "应该包含 mppx_sign_payment 工具");
     assert.ok(toolNames.includes("x402_create_signature"), "应该包含 x402_create_signature 工具");
     assert.ok(toolNames.includes("x402_submit_payment"), "应该包含 x402_submit_payment 工具");
 

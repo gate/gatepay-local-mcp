@@ -22,6 +22,7 @@ import {
   getPublicTools,
   handlePlaceOrder,
   handleSignPayment,
+  handleMppxSignPayment,
   handleCreateSignature,
   handleSubmitPayment,
   handleGatePayAuth,
@@ -83,6 +84,10 @@ async function main(): Promise<void> {
 
     if (name === "x402_sign_payment") {
       return await handleSignPayment(args ?? {}, signModeRegistry);
+    }
+
+    if (name === "mppx_sign_payment") {
+      return await handleMppxSignPayment(args ?? {});
     }
 
     if (name === "x402_create_signature") {

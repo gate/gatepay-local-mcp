@@ -1,5 +1,6 @@
 export { handlePlaceOrder } from "./place-order.js";
-export { handleSignPayment } from "./sign-payment.js";
+export { handleSignPayment } from "./x402-sign-payment.js";
+export { handleMppxSignPayment } from "./mppx-sign-payment.js";
 export { handleCreateSignature } from "./create-signature.js";
 export { handleSubmitPayment } from "./submit-payment.js";
 export { handleGatePayAuth } from "./gate-pay-auth.js";

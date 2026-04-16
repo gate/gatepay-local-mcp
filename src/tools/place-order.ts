@@ -17,8 +17,14 @@ export async function handlePlaceOrder(args: Record<string, unknown>): Promise<C
     const responseText = await response.text();
     
     const headers: Record<string, string> = {};
+    let paymentType: string | undefined;
     response.headers.forEach((value, key) => {
       headers[key] = value;
+      if (key.toLowerCase() === "payment-required") {
+        paymentType = "x402";
+      }else if (key.toLowerCase() === "www-authenticate") {
+        paymentType = "mpp";
+      }
     });
     
     const result = {
@@ -27,6 +33,7 @@ export async function handlePlaceOrder(args: Record<string, unknown>): Promise<C
         method: normalized.method,
         body: normalized.body || null,
       },
+      paymentType,
       response: {
         status: response.status,
         statusText: response.statusText,

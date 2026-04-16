@@ -75,8 +75,9 @@ export const PLACE_ORDER_INPUT_SCHEMA = {
 };
 
 export const PLACE_ORDER_DESCRIPTION =
-  "[HTTP] Fetches or posts to a URL and returns status, headers, and body without automatic 402 handling. " +
-  "For 402 paywalls use sign_payment, or create_signature then submit_payment—not this tool.";
+  "[HTTP] Fetches or posts to a URL and returns status, headers, body, and paymentType without automatic signing. " +
+  "If paymentType is x402 (PAYMENT-REQUIRED header), use x402_sign_payment or create_signature + submit_payment. " +
+  "If paymentType is mpp (WWW-Authenticate), use mppx_sign_payment—not this tool for signing.";
 
 // ============================================================================
 // x402_sign_payment
@@ -123,9 +124,68 @@ export const SIGN_PAYMENT_INPUT_SCHEMA = {
 };
 
 export const SIGN_PAYMENT_DESCRIPTION =
-  "[Write] Parses 402 requirements, signs via sign_mode, and resubmits the merchant request. " +
-  "Split flow: create_signature then submit_payment. Gate Pay Bearer: gate_pay_auth then submit_payment with sign_mode centralized_payment. " +
+  "[Write] x402 only: parses PAYMENT-REQUIRED (paymentType=x402 from x402_place_order), signs via sign_mode, resubmits the merchant request. " +
+  "For paymentType=mpp use mppx_sign_payment. Split flow: create_signature then submit_payment. " +
+  "Gate Pay Bearer: gate_pay_auth then submit_payment with sign_mode centralized_payment. " +
   "Needs payment_required_header or response_body. Side effect: may open browser; on failure ask before changing sign_mode.";
+
+// ============================================================================
+// mppx_sign_payment
+// ============================================================================
+
+export const MPPX_SIGN_PAYMENT_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    url: {
+      type: "string",
+      description: "Target URL for the merchant request (same as x402_place_order).",
+    },
+    method: {
+      type: "string",
+      description: "HTTP method for the request",
+      enum: ["GET", "POST", "PUT", "PATCH"],
+    },
+    body: {
+      type: "string",
+      description: "JSON string request body (optional)",
+    },
+    www_authenticate_header: {
+      type: "string",
+      description:
+        "WWW-Authenticate header value from the 402 response (when x402_place_order sets paymentType=mpp). " +
+        "Use the header string as returned by place_order.response.headers.",
+    },
+    response_body: {
+      type: "string",
+      description:
+        "Optional: full 402 response body if the MPP challenge must be parsed from the body instead of headers.",
+    },
+    sign_mode: {
+      type: "string",
+      description:
+        "Optional preferred signing mode for MPP (when implemented). Omit to auto-select the highest-priority ready mode.",
+      enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
+    },
+    wallet_login_provider: {
+      type: "string",
+      description:
+        "When quick_wallet needs login: google = Google account, gate = Gate account. Defaults to gate.",
+      enum: ["google", "gate"],
+    },
+    mpp_tempo_max_deposit: {
+      type: "string",
+      description:
+        "Tempo session auto mode: max deposit in human-readable token units (e.g. \"10\"). Caps server suggestedDeposit. " +
+        "Required for tempo/session when not using mpp_session_context.action; can use env MPP_TEMPO_MAX_DEPOSIT instead.",
+    },
+  },
+  required: ["url"],
+};
+
+export const MPPX_SIGN_PAYMENT_DESCRIPTION =
+  "[Write] MPP only: when x402_place_order returns paymentType=mpp (WWW-Authenticate), parse the challenge, sign, and resubmit the same merchant HTTP call. " +
+  "Tempo session challenges need mpp_tempo_max_deposit(human-readable token units, e.g. \"10\")," +
+  "Do not use for paymentType=x402—that flow is x402_sign_payment (PAYMENT-REQUIRED).";
 
 // ============================================================================
 // x402_create_signature
@@ -158,7 +218,7 @@ export const CREATE_SIGNATURE_INPUT_SCHEMA = {
 
 export const CREATE_SIGNATURE_DESCRIPTION =
   "[Write] Builds PAYMENT-SIGNATURE from 402 requirements without resubmitting the merchant HTTP call. " +
-  "Then submit_payment with the same url, method, and body. One-shot alternative: sign_payment.";
+  "Then submit_payment with the same url, method, and body. One-shot alternative: x402_sign_payment.";
 
 // ============================================================================
 // x402_submit_payment
@@ -265,7 +325,7 @@ export const CENTRALIZED_PAYMENT_INPUT_SCHEMA = {
 export const CENTRALIZED_PAYMENT_DESCRIPTION =
   "[Write] Parses PAYMENT-REQUIRED, charges Gate Pay centralized API; OAuth via gate_pay_auth if needed. " +
   "Then calls resource_url (required, full http/https like x402_place_order) with X-GatePay-Centralized-Merchant-No after pay. " +
-  "Wallet-signed x402 on arbitrary HTTP → sign_payment or create_signature + submit_payment.";
+  "Wallet-signed x402 on arbitrary HTTP → x402_sign_payment or create_signature + submit_payment.";
 
 // ============================================================================
 // Public Tools Registry
@@ -282,6 +342,11 @@ export function getPublicTools() {
       name: "x402_sign_payment",
       description: SIGN_PAYMENT_DESCRIPTION,
       inputSchema: SIGN_PAYMENT_INPUT_SCHEMA,
+    },
+    {
+      name: "mppx_sign_payment",
+      description: MPPX_SIGN_PAYMENT_DESCRIPTION,
+      inputSchema: MPPX_SIGN_PAYMENT_INPUT_SCHEMA,
     },
     {
       name: "x402_create_signature",
