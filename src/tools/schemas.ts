@@ -77,7 +77,7 @@ export const PLACE_ORDER_INPUT_SCHEMA = {
 export const PLACE_ORDER_DESCRIPTION =
   "[HTTP] Fetches or posts to a URL and returns status, headers, body, and paymentType without automatic signing. " +
   "If paymentType is x402 (PAYMENT-REQUIRED header), use x402_sign_payment or create_signature + submit_payment. " +
-  "If paymentType is mpp (WWW-Authenticate), use mppx_sign_payment—not this tool for signing.";
+  "If paymentType is mpp (WWW-Authenticate), use mpp_init_session then mpp_fetch—not this tool for signing.";
 
 // ============================================================================
 // x402_sign_payment
@@ -125,67 +125,94 @@ export const SIGN_PAYMENT_INPUT_SCHEMA = {
 
 export const SIGN_PAYMENT_DESCRIPTION =
   "[Write] x402 only: parses PAYMENT-REQUIRED (paymentType=x402 from x402_place_order), signs via sign_mode, resubmits the merchant request. " +
-  "For paymentType=mpp use mppx_sign_payment. Split flow: create_signature then submit_payment. " +
+  "For paymentType=mpp use mpp_init_session + mpp_fetch. Split flow: create_signature then submit_payment. " +
   "Gate Pay Bearer: gate_pay_auth then submit_payment with sign_mode centralized_payment. " +
   "Needs payment_required_header or response_body. Side effect: may open browser; on failure ask before changing sign_mode.";
 
 // ============================================================================
-// mppx_sign_payment
+// mpp_init_session
 // ============================================================================
 
-export const MPPX_SIGN_PAYMENT_INPUT_SCHEMA = {
+export const MPP_INIT_SESSION_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    max_deposit: {
+      type: "string",
+      description: "最大押金，人类可读单位（如 \"10\"）。首次请求后自动打开通道。默认 \"1\"。",
+    },
+    sign_mode: {
+      type: "string",
+      description: "签名模式（当前仅支持 local_private_key）。",
+      enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
+      default: "local_private_key",
+    },
+    wallet_login_provider: {
+      type: "string",
+      description: "quick_wallet 登录提供商（暂未开放）。",
+      enum: ["google", "gate"],
+    },
+    decimals: {
+      type: "number",
+      description: "代币精度，默认 6。",
+    },
+  },
+  required: [],
+};
+
+export const MPP_INIT_SESSION_DESCRIPTION =
+  "[Write] 初始化 MPP Tempo 会话：解析 sign_mode、校验私钥、创建 Mppx 实例并缓存。" +
+  "返回 sessionId 与初始化状态。需先于 mpp_fetch 调用。";
+
+// ============================================================================
+// mpp_fetch
+// ============================================================================
+
+export const MPP_FETCH_INPUT_SCHEMA = {
   type: "object" as const,
   properties: {
     url: {
       type: "string",
-      description: "Target URL for the merchant request (same as x402_place_order).",
+      description: "目标资源 URL（完整 http/https）。",
     },
     method: {
       type: "string",
-      description: "HTTP method for the request",
+      description: "HTTP 方法，默认 POST。",
       enum: ["GET", "POST", "PUT", "PATCH"],
     },
     body: {
       type: "string",
-      description: "JSON string request body (optional)",
+      description: "请求体（JSON 字符串）。",
     },
-    www_authenticate_header: {
+    headers: {
       type: "string",
-      description:
-        "WWW-Authenticate header value from the 402 response (when x402_place_order sets paymentType=mpp). " +
-        "Use the header string as returned by place_order.response.headers.",
-    },
-    response_body: {
-      type: "string",
-      description:
-        "Optional: full 402 response body if the MPP challenge must be parsed from the body instead of headers.",
-    },
-    sign_mode: {
-      type: "string",
-      description:
-        "Optional preferred signing mode for MPP (when implemented). Omit to auto-select the highest-priority ready mode.",
-      enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
-    },
-    wallet_login_provider: {
-      type: "string",
-      description:
-        "When quick_wallet needs login: google = Google account, gate = Gate account. Defaults to gate.",
-      enum: ["google", "gate"],
-    },
-    mpp_tempo_max_deposit: {
-      type: "string",
-      description:
-        "Tempo session auto mode: max deposit in human-readable token units (e.g. \"10\"). Caps server suggestedDeposit. " +
-        "Required for tempo/session when not using mpp_session_context.action; can use env MPP_TEMPO_MAX_DEPOSIT instead.",
+      description: "额外请求头，JSON 对象字符串（可选）。",
     },
   },
   required: ["url"],
 };
 
-export const MPPX_SIGN_PAYMENT_DESCRIPTION =
-  "[Write] MPP only: when x402_place_order returns paymentType=mpp (WWW-Authenticate), parse the challenge, sign, and resubmit the same merchant HTTP call. " +
-  "Tempo session challenges need mpp_tempo_max_deposit(human-readable token units, e.g. \"10\")," +
-  "Do not use for paymentType=x402—that flow is x402_sign_payment (PAYMENT-REQUIRED).";
+export const MPP_FETCH_DESCRIPTION =
+  "[Write] 使用已缓存的 Mppx 实例发起请求：自动处理 402 (WWW-Authenticate)、生成 credential 并重试。" +
+  "首次调用会触发 402 并自动打开 Tempo 通道。需先调用 mpp_init_session。";
+
+// ============================================================================
+// mpp_close_session
+// ============================================================================
+
+export const MPP_CLOSE_SESSION_INPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    account_address: {
+      type: "string",
+      description: "可选：要关闭的会话对应账户地址。若不填则关闭任意一个活跃会话。",
+    },
+  },
+  required: [],
+};
+
+export const MPP_CLOSE_SESSION_DESCRIPTION =
+  "[Write] 关闭 MPP Tempo 会话：清理缓存的 Mppx 实例。" +
+  "注：当前实现仅清理内存，若需链上结算需后续接入 sessionManager.close()。";
 
 // ============================================================================
 // x402_create_signature
@@ -344,9 +371,19 @@ export function getPublicTools() {
       inputSchema: SIGN_PAYMENT_INPUT_SCHEMA,
     },
     {
-      name: "mppx_sign_payment",
-      description: MPPX_SIGN_PAYMENT_DESCRIPTION,
-      inputSchema: MPPX_SIGN_PAYMENT_INPUT_SCHEMA,
+      name: "mpp_init_session",
+      description: MPP_INIT_SESSION_DESCRIPTION,
+      inputSchema: MPP_INIT_SESSION_INPUT_SCHEMA,
+    },
+    {
+      name: "mpp_fetch",
+      description: MPP_FETCH_DESCRIPTION,
+      inputSchema: MPP_FETCH_INPUT_SCHEMA,
+    },
+    {
+      name: "mpp_close_session",
+      description: MPP_CLOSE_SESSION_DESCRIPTION,
+      inputSchema: MPP_CLOSE_SESSION_INPUT_SCHEMA,
     },
     {
       name: "x402_create_signature",

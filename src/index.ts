@@ -22,7 +22,9 @@ import {
   getPublicTools,
   handlePlaceOrder,
   handleSignPayment,
-  handleMppxSignPayment,
+  handleMppInitSession,
+  handleMppFetch,
+  handleMppCloseSession,
   handleCreateSignature,
   handleSubmitPayment,
   handleGatePayAuth,
@@ -86,8 +88,16 @@ async function main(): Promise<void> {
       return await handleSignPayment(args ?? {}, signModeRegistry);
     }
 
-    if (name === "mppx_sign_payment") {
-      return await handleMppxSignPayment(args ?? {});
+    if (name === "mpp_init_session") {
+      return await handleMppInitSession(args ?? {});
+    }
+
+    if (name === "mpp_fetch") {
+      return await handleMppFetch(args ?? {});
+    }
+
+    if (name === "mpp_close_session") {
+      return await handleMppCloseSession(args ?? {});
     }
 
     if (name === "x402_create_signature") {
