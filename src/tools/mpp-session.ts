@@ -1,12 +1,12 @@
 /**
  * MPP session 工具：init / fetch / close
- * 使用 mppx tempo.session() 返回的 SessionManager 实现多轮请求复用 channel
+ * 使用本地 mpp-base 的 baseSession()（Base + USDC，authorize/open 分离）复用 channel
  * 缓存以 account.address 为 key，支持同一账户复用
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { tempo } from "mppx/client";
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { baseSession } from "../mpp-base/index.js";
 import {
   getMppSession,
   setMppSession,
@@ -19,6 +19,7 @@ import {
   createSuccessResponse,
   handleRequestError,
 } from "../utils/response-helpers.js";
+import { getMppBaseSessionChainId } from "../config/env-config.js";
 
 /**
  * 解析 sign_mode 与环境变量，返回 viem account。
@@ -28,20 +29,44 @@ function resolveMppAccount(signMode: string | undefined): ReturnType<typeof priv
   const mode = signMode ?? "local_private_key";
   if (mode !== "local_private_key") {
     throw new Error(
-      `MPP Tempo 当前仅支持 local_private_key（EVM_PRIVATE_KEY）。` +
+      `MPP Base 当前仅支持 local_private_key（EVM_PRIVATE_KEY）。` +
         `quick_wallet / plugin_wallet 暂未实现（需将托管钱包封装为 viem Account）。`
     );
   }
   const rawKey = process.env.EVM_PRIVATE_KEY?.trim() ?? process.env.PRIVATE_KEY?.trim();
   if (!rawKey) {
-    throw new Error("未设置 EVM_PRIVATE_KEY（或 PRIVATE_KEY），无法为 Tempo MPP 签名。");
+    throw new Error("未设置 EVM_PRIVATE_KEY（或 PRIVATE_KEY），无法为 Base MPP 签名。");
   }
   const evmPrivateKey = (rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`) as Hex;
   return privateKeyToAccount(evmPrivateKey);
 }
 
 /**
- * mpp_init_session: 初始化 Tempo session（SessionManager），以 account.address 为 key 缓存
+ * Base session：chainId 来自 env-config（GATE_PAY_ENV + MPP_BASE_CHAIN_ID / BASE_CHAIN_ID 可选覆盖）；
+ * 托管合约仅当显式设置 MPP_BASE_ESCROW_CONTRACT / BASE_ESCROW_CONTRACT 时覆盖 mpp-base 默认。
+ */
+function resolveBaseSessionEnv(): {
+  chainId: number;
+  escrowContract?: Address;
+} {
+  const chainId = getMppBaseSessionChainId();
+  const escrowRaw =
+    process.env.MPP_BASE_ESCROW_CONTRACT?.trim() ??
+    process.env.BASE_ESCROW_CONTRACT?.trim();
+
+  const out: {
+    chainId: number;
+    escrowContract?: Address;
+  } = { chainId };
+
+  if (escrowRaw?.startsWith("0x")) {
+    out.escrowContract = escrowRaw as Address;
+  }
+  return out;
+}
+
+/**
+ * mpp_init_session: 初始化 Base MPP session（SessionManager），以 account.address 为 key 缓存
  * - 若账户已存在：复用现有 SessionManager 实例，保持 channel 状态
  * - 若不存在：创建新实例
  */
@@ -50,6 +75,7 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
     const maxDeposit = String(args.max_deposit ?? "1").trim();
     const signMode = args.sign_mode != null ? String(args.sign_mode).trim() : undefined;
     const decimals = args.decimals != null ? Number(args.decimals) : 6;
+    const baseOpts = resolveBaseSessionEnv();
 
     const account = resolveMppAccount(signMode ?? "local_private_key");
     const accountAddress = account.address.toLowerCase();
@@ -63,10 +89,12 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
         clearMppSession(accountAddress);
 
         // 创建新的 SessionManager 实例（使用新 maxDeposit）
-        const sessionManager = tempo.session({
-          account,
+        const sessionManager = baseSession({
+          // viem LocalAccount.signTypedData 与 mpp-base 的宽松签名在 TS 上不兼容，运行时一致
+          account: account as never,
           maxDeposit,
           decimals,
+          ...baseOpts,
         }) as unknown as MppSessionManager;
 
         // 重新存入缓存
@@ -112,11 +140,12 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
       );
     }
 
-    // 创建新的 SessionManager（tempo.session 返回带 fetch/close 的实例）
-    const sessionManager = tempo.session({
-      account,
+    // 创建新的 SessionManager（baseSession 返回带 fetch/close 的实例）
+    const sessionManager = baseSession({
+      account: account as never,
       maxDeposit,
       decimals,
+      ...baseOpts,
     }) as unknown as MppSessionManager;
 
     // 存入缓存

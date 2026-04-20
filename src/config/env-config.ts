@@ -149,3 +149,25 @@ function parseCallbackPort(): number | undefined {
   const n = parseInt(portStr, 10);
   return Number.isNaN(n) ? undefined : n;
 }
+
+function parsePositiveIntEnv(value: string | undefined): number | undefined {
+  if (!value?.trim()) return undefined;
+  const n = Number(value.trim());
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function getMppBaseChainIdPresetByEnv(): number {
+  return getEnvironment() === "test" ? 84532 : 8453;
+}
+
+/**
+ * MPP Base session 的 chainId。
+ * 优先级：MPP_BASE_CHAIN_ID、BASE_CHAIN_ID > GATE_PAY_ENV 预设（test→84532，prd→8453）
+ */
+export function getMppBaseSessionChainId(): number {
+  return (
+    parsePositiveIntEnv(process.env.MPP_BASE_CHAIN_ID) ??
+    parsePositiveIntEnv(process.env.BASE_CHAIN_ID) ??
+    getMppBaseChainIdPresetByEnv()
+  );
+}

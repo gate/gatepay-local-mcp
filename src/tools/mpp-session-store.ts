@@ -4,8 +4,8 @@
  */
 
 /**
- * Tempo SessionManager 最小接口（与 mppx/tempo/client/SessionManager.d.ts 一致）。
- * 运行时使用实际 mppx 导出，这里仅用于类型提示。
+ * MPP SessionManager 最小接口（mppx tempo 或本地 mpp-base baseSession）。
+ * 运行时使用实际实例，这里仅用于类型提示。
  */
 export interface MppSessionManager {
   readonly channelId: string | undefined;
@@ -23,7 +23,7 @@ export interface MppPaymentResponse extends Response {
 }
 
 export interface MppSessionReceipt {
-  method: "tempo";
+  method: "tempo" | "base";
   intent: "session";
   status: "success";
   timestamp: string;
