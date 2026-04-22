@@ -1,8 +1,8 @@
 /**
  * Base + USDC Session (mpp-base)
  *
- * 客户端仅做 EIP-712（transferAuth：EIP-3009 + voucher：Tempo Stream Channel）；上链由服务端完成。
- * 首次 402 建立通道时 payload action 为 `open`：transferAuth 仅含 EIP-3009 message + signature；domain 由服务端按 USDC 标准校验时自行组装。
+ * 客户端仅做 EIP-712（transferAuth：EIP-3009 + openAuth：OpenAuthorization + voucher：AgentPaymentChannel）；上链由服务端完成。
+ * 首次 402 建立通道时 payload action 为 `open`：含 openAuth（托管合约）、transferAuth（USDC）、voucher；USDC domain 由服务端按标准校验时自行组装。
  */
 import { type Address, type Hex, parseUnits, getAddress } from 'viem'
 
@@ -13,14 +13,18 @@ import { Session as TempoSession } from 'mppx/tempo'
 import {
   signTransferWithAuthorization,
   type TransferWithAuthorizationMessage,
-} from './signAuthorize.js'
-import { computeChannelId, signVoucher } from './voucher.js'
+} from './usdc.js'
+import {
+  computeChannelId,
+  signOpenAuthorization,
+  signVoucher,
+} from './escrow.js'
 
 // 默认配置
 const DEFAULT_CHAIN_ID = 8453  // Base Mainnet
 const DEFAULT_ESCROW_CONTRACT: Record<number, Address> = {
   8453: '0xe1c4d3dce17bc111181ddf716f75bae49e61a336',
-  84532: '0xe1c4d3dce17bc111181ddf716f75bae49e61a336',
+  84532: '0xabB719022DBDBb359dd0D2ad6abfc2EBd513bd15',
 }
 const DEFAULT_USDC: Record<number, Address> = {
   8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -40,7 +44,6 @@ export function parsePaymentReceipt(response: Response): PaymentReceipt | undefi
   const raw = response.headers.get('Payment-Receipt')
   if (!raw?.trim()) return undefined
   try {
-    console.error("raw receipt:", raw);
     return Receipt.deserialize(raw.trim())
   } catch {
     return undefined
@@ -176,7 +179,7 @@ export interface ChannelEntry {
 }
 
 /**
- * EIP-3009 TransferWithAuthorization：仅传签名对应 message + signature（与顶层 voucher 的 `signature` 区分）
+ * EIP-3009（ReceiveWithAuthorization digest）：仅传 message + signature（与顶层 voucher 的 `signature` 区分）；上链须调 `receiveWithAuthorization` 与之对应。
  */
 export interface TransferAuthEip712 {
   message: {
@@ -192,16 +195,38 @@ export interface TransferAuthEip712 {
 }
 
 /**
+ * 托管合约 EIP-712 OpenAuthorization：与 `openWithAuthorization` 参数一致；auth 字段须与 transferAuth.message 的 validAfter、validBefore、nonce 一致
+ */
+export interface OpenAuthEip712 {
+  message: {
+    payer: Address
+    payee: Address
+    token: Address
+    /** 最小单位，十进制字符串（uint128） */
+    deposit: string
+    salt: Hex
+    authorizedSigner: Address
+    authValidAfter: string
+    authValidBefore: string
+    authNonce: Hex
+  }
+  signature: Hex
+}
+
+/**
  * Session Credential Payload（与 mppx `tempo/session/Types` 对齐：`voucher` / `close` 无 `type` 字段）
  */
 export type SessionCredentialPayload =
   | {
       action: 'open'
-      type: 'transaction'
+      type: 'signature'
       channelId: Hex
       cumulativeAmount: string
+      /** Voucher（累计支付承诺）签名 */
       signature: Hex
       transaction?: Hex
+      /** 托管合约 OpenAuthorization 签名（与 transferAuth 配套） */
+      openAuth: OpenAuthEip712
       transferAuth?: TransferAuthEip712
       authorizedSigner?: Address
     }
@@ -271,11 +296,11 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
 
     const transferNonce = randomBytes32()
     const validAfter = 0n
-    const validBefore = BigInt(Math.floor(Date.now() / 1000) + 3600)
+    const validBefore = BigInt(Math.floor(Date.now() / 1000) + 3600*24)
 
     const transferMessage: TransferWithAuthorizationMessage = {
       from: account.address,
-      to: payee,
+      to: resolvedEscrow,
       value: deposit,
       validAfter,
       validBefore,
@@ -310,6 +335,22 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
     }
     onChannelUpdate?.(channel)
 
+    const openAuthSignature = await signOpenAuthorization(
+      account,
+      {
+        payer: account.address,
+        payee,
+        token: resolvedCurrency,
+        deposit,
+        salt,
+        authorizedSigner: resolvedAuthorizedSigner,
+        authValidAfter: validAfter,
+        authValidBefore: validBefore,
+        authNonce: transferNonce,
+      },
+      { escrowContract: resolvedEscrow, chainId },
+    )
+
     const voucherSignature = await signVoucher(account, {
       channelId,
       cumulativeAmount: initialAmount,
@@ -319,10 +360,24 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
 
     const payload: SessionCredentialPayload = {
       action: 'open',
-      type: 'transaction',
+      type: 'signature',
       channelId,
       cumulativeAmount: initialAmount.toString(),
       signature: voucherSignature,
+      openAuth: {
+        message: {
+          payer: account.address,
+          payee,
+          token: resolvedCurrency,
+          deposit: deposit.toString(),
+          salt,
+          authorizedSigner: resolvedAuthorizedSigner,
+          authValidAfter: validAfter.toString(),
+          authValidBefore: validBefore.toString(),
+          authNonce: transferNonce,
+        },
+        signature: openAuthSignature,
+      },
       transferAuth: {
         message: {
           from: account.address,
@@ -336,6 +391,7 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       },
       authorizedSigner: resolvedAuthorizedSigner,
     }
+    console.error("open payload:", JSON.stringify(payload, null, 2));
 
     return Credential.serialize({ challenge, payload, source: `did:pkh:eip155:${chainId}:${account.address}` })
   }
@@ -361,6 +417,7 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       cumulativeAmount: cumulativeAmount.toString(),
       signature,
     }
+    console.error("voucher payload:", JSON.stringify(payload, null, 2));
 
     return Credential.serialize({ challenge, payload, source: `did:pkh:eip155:${chainId}:${account.address}` })
   }
@@ -430,7 +487,6 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       const notifyReceipt = (res: Response) => {
         if (!res.ok) return
         const parsed = parsePaymentReceipt(res)
-        console.error("receipt parsed", parsed);
         if (parsed) onPaymentReceipt?.(parsed)
       }
       notifyReceipt(response)

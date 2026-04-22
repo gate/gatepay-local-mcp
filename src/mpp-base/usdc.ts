@@ -1,61 +1,62 @@
 /**
- * EIP-3009 TransferWithAuthorization（与 Circle USDC 一致）
- *
- * 链下签名供服务端调用 USDC 合约的 `transferWithAuthorization`，或经托管合约转调。
- * Domain：`name: "USD Coin"`, `version: "2"`, `verifyingContract` = **USDC 地址**（不是 escrow）。
+ * USDC EIP-3009：对代币合约签 `ReceiveWithAuthorization`（domain.verifyingContract = USDC）。
+ * 须与链上调用的函数一致：若上链调 `receiveWithAuthorization`，EIP-712 primaryType 须为 `ReceiveWithAuthorization`（与 `TransferWithAuthorization` 的 digest 不同）。
+ * Base 主网官方 USDC 的 ERC20 `name()` 为 `USD Coin`；Base Sepolia 测试币为 `USDC`，domain.name 须与代币 `name()` 一致。
  *
  * @see https://eips.ethereum.org/EIPS/eip-3009
  */
 import type { Address, Hex } from 'viem'
 import { base, baseSepolia } from 'viem/chains'
 
-/** 与 FiatToken / USDC EIP-3009 对齐的 typed data */
+// --- USDC EIP-712（FiatToken；domain.name 随链上 name() 可能不同）---
+
+const USDC_EIP712_VERSION = '2' as const
+
+function usdcEip712DomainName(chainId: number): string {
+  if (chainId === 84532) return 'USDC'
+  return 'USD Coin'
+}
+
+const USDC_RECEIVE_AUTH_EIP712_TYPES = {
+  ReceiveWithAuthorization: [
+    { name: 'from', type: 'address' },
+    { name: 'to', type: 'address' },
+    { name: 'value', type: 'uint256' },
+    { name: 'validAfter', type: 'uint256' },
+    { name: 'validBefore', type: 'uint256' },
+    { name: 'nonce', type: 'bytes32' },
+  ],
+} as const
+
+// --- 消息与签名 ---
+
+/** 与 FiatToken EIP-3009 授权消息的字段一致（Receive / Transfer 共用同一组字段） */
 export interface TransferWithAuthorizationMessage {
-  /** 付款人（from） */
   from: Address
-  /** 收款人（to） */
   to: Address
-  /** 授权转账数量（最小单位） */
   value: bigint
-  /** 生效最早时间（unix 秒），常用 0 */
   validAfter: bigint
-  /** 过期时间（unix 秒） */
   validBefore: bigint
-  /** 防重放，bytes32 */
   nonce: Hex
 }
 
 /**
- * 对 USDC（`verifyingContract`）上的 TransferWithAuthorization 做 EIP-712 签名。
+ * 对 USDC 合约上的 `receiveWithAuthorization` 做 EIP-712 签名（primaryType：`ReceiveWithAuthorization`）。
  */
 export async function signTransferWithAuthorization(
   account: { address: Address; signTypedData: (params: unknown) => Promise<Hex> },
   message: TransferWithAuthorizationMessage,
   chainId: number,
-  /** USDC 合约地址，即 EIP-712 domain.verifyingContract */
   usdcAddress: Address,
 ): Promise<Hex> {
-  const domain = {
-    name: 'USD Coin',
-    version: '2',
-    chainId,
-    verifyingContract: usdcAddress,
-  }
-
-  const types = {
-    TransferWithAuthorization: [
-      { name: 'from', type: 'address' },
-      { name: 'to', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'validAfter', type: 'uint256' },
-      { name: 'validBefore', type: 'uint256' },
-      { name: 'nonce', type: 'bytes32' },
-    ],
-  }
-
   return account.signTypedData({
-    domain,
-    primaryType: 'TransferWithAuthorization',
+    domain: {
+      name: usdcEip712DomainName(chainId),
+      version: USDC_EIP712_VERSION,
+      chainId,
+      verifyingContract: usdcAddress,
+    },
+    primaryType: 'ReceiveWithAuthorization',
     message: {
       from: message.from,
       to: message.to,
@@ -64,11 +65,11 @@ export async function signTransferWithAuthorization(
       validBefore: message.validBefore.toString(),
       nonce: message.nonce,
     },
-    types,
+    types: USDC_RECEIVE_AUTH_EIP712_TYPES,
   } as unknown as Parameters<typeof account.signTypedData>[0])
 }
 
-/** @deprecated 使用 {@link signTransferWithAuthorization}；旧版自定义 Authorize 已废弃 */
+/** @deprecated 使用 {@link signTransferWithAuthorization} */
 export type AuthorizeMessage = TransferWithAuthorizationMessage
 
 /** @deprecated 使用 {@link signTransferWithAuthorization} */
@@ -80,6 +81,8 @@ export async function signAuthorizeMessage(
 ): Promise<Hex> {
   return signTransferWithAuthorization(account, message, chainId, usdcAddress)
 }
+
+// --- 链 / 请求解析（与 EIP-712 无关，供调用方选用）---
 
 export function getChainConfig(chainId: number) {
   return chainId === 8453 ? base : baseSepolia
