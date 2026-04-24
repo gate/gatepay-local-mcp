@@ -381,7 +381,7 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       transferAuth: {
         message: {
           from: account.address,
-          to: payee,
+          to: resolvedEscrow,
           value: deposit.toString(),
           validAfter: validAfter.toString(),
           validBefore: validBefore.toString(),
