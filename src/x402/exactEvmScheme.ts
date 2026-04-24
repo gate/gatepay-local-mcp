@@ -25,7 +25,7 @@ const authorizationTypes = {
 export class ExactEvmScheme implements SchemeNetworkClient {
   readonly scheme = "exact";
 
-  constructor(private readonly signer: ClientEvmSigner) {}
+  constructor(private readonly signer: ClientEvmSigner) { }
 
   async createPaymentPayload(
     x402Version: number,
@@ -62,7 +62,7 @@ export class ExactEvmScheme implements SchemeNetworkClient {
     authorization: ExactEvmPayloadV2["authorization"],
     requirements: PaymentRequirements,
   ): Promise<`0x${string}`> {
-    const domainSeparator =
+        const domainSeparator =
       String(requirements.network) === "gatelayer_testnet"
         ? getGatelayerTestnetDomainSeparator(requirements.asset ?? "")
         : undefined;
@@ -83,9 +83,9 @@ export class ExactEvmScheme implements SchemeNetworkClient {
       }
       const digest = buildEip712DigestTransferWithAuthorization(
         domainSeparator,
-        intent 
+        intent
       );
-      return this.signer.signDigest(digest, JSON.stringify(intent));
+      return this.signer.signDigest(digest);
     }
 
     const chainId = getEvmChainIdFromNetwork(requirements.network);

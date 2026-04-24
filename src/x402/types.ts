@@ -57,7 +57,7 @@ export type ClientEvmSigner = {
     primaryType: string;
     message: Record<string, unknown>;
   }): Promise<`0x${string}`>;
-  signDigest?(digest: `0x${string}`, intent?: string): Promise<`0x${string}`>;
+  signDigest?(digest: `0x${string}`): Promise<`0x${string}`>;
 };
 
 export type ClientSvmSigner = TransactionSigner;

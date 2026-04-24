@@ -59,9 +59,9 @@ export async function createQuickWalletSigner(
 
   const chain = options?.chain ?? "ETH";
 
-  const signDigest = async (digest: `0x${string}`, intent?: string): Promise<`0x${string}`> => {
+  const signDigest = async (digest: `0x${string}`): Promise<`0x${string}`> => {
     const digestForMcp = digest.replace(/^0x/i, "");
-    const checkinToken = await getCheckinToken(mcp, address, chain, "evm", { message:intent });
+    const checkinToken = await getCheckinToken(mcp, address, chain, "evm", { message:digestForMcp });
     const result = await mcp.walletSignMessage("EVM", digestForMcp, checkinToken);
     const data = parseMcpToolResult<Record<string, unknown>>(result);
     const sig = data && extractSignatureFromMcpResult(data);
