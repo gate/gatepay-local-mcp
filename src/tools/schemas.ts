@@ -138,31 +138,33 @@ export const MPP_INIT_SESSION_INPUT_SCHEMA = {
   properties: {
     max_deposit: {
       type: "string",
-      description: "最大押金，人类可读单位（如 \"10\"）。默认 \"1\"；与商户首次 402 交互时会在链上建立/确认托管通道。",
+      description:
+        'Maximum deposit as a human-readable amount (e.g. "10"). Default "1"; first 402 with the merchant establishes/confirms the on-chain escrow channel.',
     },
     sign_mode: {
       type: "string",
       description:
-        "签名模式：local_private_key（EVM_PRIVATE_KEY）；quick_wallet（托管 MCP，EIP-712 + Base 链上写合约 via dex_wallet_sign_transaction）。",
+        "Signing mode: local_private_key (EVM_PRIVATE_KEY); quick_wallet (hosted MCP, EIP-712 + Base on-chain contract via dex_wallet_sign_transaction).",
       enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
       default: "local_private_key",
     },
     wallet_login_provider: {
       type: "string",
-      description: "sign_mode 为 quick_wallet 时：设备流登录提供商（google / gate），默认 gate。",
+      description:
+        "When sign_mode is quick_wallet: device-flow OAuth provider (google / gate). Default gate.",
       enum: ["google", "gate"],
     },
     decimals: {
       type: "number",
-      description: "代币精度，默认 6。",
+      description: "Token decimals. Default 6.",
     },
   },
   required: [],
 };
 
 export const MPP_INIT_SESSION_DESCRIPTION =
-  "[Write] 初始化 MPP 会话（链上押金/托管通道）：sign_mode 为 local_private_key 或 quick_wallet（EIP-712 + Base 链上合约）。" +
-  "返回 sessionId 与初始化状态；须先于 mpp_fetch。quick_wallet 需快捷钱包 MCP 登录；链上网络由 QUICK_WALLET_MPP_EVM_CHAIN（默认 BASE）与当前 MPP chainId 决定。";
+  "[Write] Initialize an MPP session (on-chain deposit / escrow channel): sign_mode is local_private_key or quick_wallet (EIP-712 + Base on-chain contract). " +
+  "Returns sessionId and init status; call before mpp_fetch. quick_wallet requires Quick Wallet MCP login; chain is driven by QUICK_WALLET_MPP_EVM_CHAIN (default BASE) and current MPP chainId.";
 
 // ============================================================================
 // mpp_fetch
@@ -173,28 +175,28 @@ export const MPP_FETCH_INPUT_SCHEMA = {
   properties: {
     url: {
       type: "string",
-      description: "目标资源 URL（完整 http/https）。",
+      description: "Target resource URL (full http/https).",
     },
     method: {
       type: "string",
-      description: "HTTP 方法，默认 POST。",
+      description: "HTTP method. Default POST.",
       enum: ["GET", "POST", "PUT", "PATCH"],
     },
     body: {
       type: "string",
-      description: "请求体（JSON 字符串）。",
+      description: "Request body as a JSON string.",
     },
     headers: {
       type: "string",
-      description: "额外请求头，JSON 对象字符串（可选）。",
+      description: "Extra headers as a JSON object string (optional).",
     },
   },
   required: ["url"],
 };
 
 export const MPP_FETCH_DESCRIPTION =
-  "[Write] 使用已缓存的 MPP 客户端对商户 URL 发起 HTTP 请求：自动处理 402 (WWW-Authenticate)、生成 credential 并重试。" +
-  "首次命中 402 时会在链上建立/确认托管通道。须先 mpp_init_session；HTTP 侧收尾结算用 mpp_close_session。";
+  "[Write] HTTP request to a merchant URL using the cached MPP client: handles 402 (WWW-Authenticate), builds credential, retries. " +
+  "First 402 establishes/confirms the on-chain escrow channel. Requires mpp_init_session first; use mpp_close_session for HTTP settlement.";
 
 // ============================================================================
 // mpp_close_session
@@ -206,15 +208,15 @@ export const MPP_CLOSE_SESSION_INPUT_SCHEMA = {
     account_address: {
       type: "string",
       description:
-        "可选：要结算并关闭的会话对应 EVM 地址。省略则对当前缓存中的任一活跃会话执行 HTTP 结算与清理。",
+        "Optional EVM address for the session to settle and close. If omitted, settles and clears one active cached session.",
     },
   },
   required: [],
 };
 
 export const MPP_CLOSE_SESSION_DESCRIPTION =
-  "[Write] HTTP 侧直接结算并结束会话：签名 close 凭证，向此前 mpp_fetch 使用过的资源 URL POST，解析 Payment-Receipt（商户计费完成）；随后清理本地 session。" +
-  "常规收尾用本工具；链上仅发起关闭意图请用 mpp_request_close，二者职责不同。";
+  "[Write] HTTP-side settlement and session teardown: sign close credential, POST to the resource URL last used by mpp_fetch, parse Payment-Receipt (merchant billing complete); then clear local session. " +
+  "Use for normal cleanup; mpp_request_close is only on-chain close intent—the responsibilities differ.";
 
 // ============================================================================
 // mpp_request_close
@@ -226,20 +228,20 @@ export const MPP_REQUEST_CLOSE_INPUT_SCHEMA = {
     account_address: {
       type: "string",
       description:
-        "可选：目标会话的 EVM 地址。省略则对当前缓存中的任一已打开通道的会话发起链上 requestClose。",
+        "Optional EVM address for the session. If omitted, sends on-chain requestClose for one cached session that has an open channel.",
     },
     rpc_url: {
       type: "string",
       description:
-        "可选：覆盖 JSON-RPC。未填时使用 MPP_BASE_RPC_URL / BASE_RPC_URL，或对 Base 主网/Sepolia 使用内置默认公共节点。",
+        "Optional JSON-RPC URL override. If omitted, uses MPP_BASE_RPC_URL / BASE_RPC_URL or built-in public defaults for Base mainnet/Sepolia.",
     },
   },
   required: [],
 };
 
 export const MPP_REQUEST_CLOSE_DESCRIPTION =
-  "[Write] 仅链上：调用托管合约 requestClose(channelId)，发起关闭通道的链上流程（等待期后配合 mpp_withdraw 取回资金）。" +
-  "不调用商户 HTTP、不返回 Payment-Receipt、不清理本地 session；商户侧计费与收据须单独执行 mpp_close_session。";
+  "[Write] On-chain only: call escrow contract requestClose(channelId) to start on-chain channel closure (after the wait period, use mpp_withdraw to recover funds). " +
+  "Does not call merchant HTTP, does not return Payment-Receipt, does not clear local session; run mpp_close_session separately for merchant billing and receipt.";
 
 // ============================================================================
 // mpp_withdraw
@@ -250,25 +252,26 @@ export const MPP_WITHDRAW_INPUT_SCHEMA = {
   properties: {
     account_address: {
       type: "string",
-      description: "可选：目标会话的 EVM 地址。省略则使用当前缓存中的会话（须能解析 channel）。",
+      description:
+        "Optional EVM address. If omitted, uses a cached session (must resolve channel).",
     },
     channel_id: {
       type: "string",
       description:
-        "可选：bytes32 通道 id（0x+64hex）。本地仍有 channel 时可省略；若已 mpp_close_session 清空本地状态须显式传入。",
+        "Optional bytes32 channel id (0x + 64 hex). Omit when channel is still in local cache; pass explicitly if mpp_close_session cleared local state.",
     },
     rpc_url: {
       type: "string",
       description:
-        "可选：覆盖 JSON-RPC。未填时使用 MPP_BASE_RPC_URL / BASE_RPC_URL，或对 Base 主网/Sepolia 使用内置默认公共节点。",
+        "Optional JSON-RPC URL override. If omitted, uses MPP_BASE_RPC_URL / BASE_RPC_URL or built-in public defaults for Base mainnet/Sepolia.",
     },
   },
   required: [],
 };
 
 export const MPP_WITHDRAW_DESCRIPTION =
-  "[Write] 链上托管合约 withdraw(channelId)：在 mpp_request_close 成功且经过合约等待期后，从链上取回剩余押金。" +
-  "时机由合约校验；过早调用会 revert。签名账户须与 mpp_init_session 一致。";
+  "[Write] On-chain escrow withdraw(channelId): after mpp_request_close succeeds and the contract wait period passes, withdraw remaining deposit on-chain. " +
+  "Timing is enforced by the contract; too early reverts. Signing account must match mpp_init_session.";
 
 // ============================================================================
 // x402_create_signature
