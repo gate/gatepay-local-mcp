@@ -1,20 +1,79 @@
 /**
  * USDC EIP-3009：对代币合约签 `ReceiveWithAuthorization`（domain.verifyingContract = USDC）。
  * 须与链上调用的函数一致：若上链调 `receiveWithAuthorization`，EIP-712 primaryType 须为 `ReceiveWithAuthorization`（与 `TransferWithAuthorization` 的 digest 不同）。
- * Base 主网官方 USDC 的 ERC20 `name()` 为 `USD Coin`；Base Sepolia 测试币为 `USDC`，domain.name 须与代币 `name()` 一致。
+ * `domain.name` 与链上 FiatToken `name()` 一致；优先通过 RPC `name()` 读取，失败时再按 chainId 回退。
  *
  * @see https://eips.ethereum.org/EIPS/eip-3009
  */
 import type { Address, Hex } from 'viem'
+import { createPublicClient, defineChain, http } from 'viem'
 import { base, baseSepolia } from 'viem/chains'
 
-// --- USDC EIP-712（FiatToken；domain.name 随链上 name() 可能不同）---
+// --- USDC EIP-712（FiatToken；domain.name 须与代币 name() 一致）---
 
 const USDC_EIP712_VERSION = '2' as const
 
-function usdcEip712DomainName(chainId: number): string {
+const erc20NameAbi = [
+  {
+    type: 'function',
+    name: 'name',
+    stateMutability: 'view' as const,
+    inputs: [],
+    outputs: [{ type: 'string' }],
+  },
+] as const
+
+/** RPC 失败或未配置自定义链 RPC 时的保守回退（与历史硬编码一致） */
+function usdcEip712DomainNameFallback(chainId: number): string {
   if (chainId === 84532) return 'USDC'
   return 'USD Coin'
+}
+
+/**
+ * 从代币合约读取 `name()`，用作 EIP-712 domain.name。
+ * - Base / Base Sepolia：使用 viem 链定义中的默认公共 RPC。
+ * - 其它 chainId：可传 `rpcUrl`（例如与 MPP_BASE_RPC_URL 同源）；未传则仅回退启发式。
+ */
+export async function resolveUsdcEip712DomainName(
+  chainId: number,
+  usdcAddress: Address,
+  rpcUrl?: string,
+): Promise<string> {
+  const readName = async (url: string, chain: typeof base | ReturnType<typeof defineChain>) => {
+    const client = createPublicClient({
+      chain,
+      transport: http(url),
+    })
+    return client.readContract({
+      address: usdcAddress,
+      abi: erc20NameAbi,
+      functionName: 'name',
+    }) as Promise<string>
+  }
+
+  try {
+    if (chainId === base.id) {
+      const url = rpcUrl?.trim() || base.rpcUrls.default.http[0]
+      if (url) return await readName(url, base)
+    }
+    if (chainId === baseSepolia.id) {
+      const url = rpcUrl?.trim() || baseSepolia.rpcUrls.default.http[0]
+      if (url) return await readName(url, baseSepolia)
+    }
+    const custom = rpcUrl?.trim()
+    if (custom) {
+      const chain = defineChain({
+        id: chainId,
+        name: 'usdc-domain-read',
+        nativeCurrency: { decimals: 18, name: 'Ether', symbol: 'ETH' },
+        rpcUrls: { default: { http: [custom] } },
+      })
+      return await readName(custom, chain)
+    }
+  } catch {
+    // 使用回退
+  }
+  return usdcEip712DomainNameFallback(chainId)
 }
 
 const USDC_RECEIVE_AUTH_EIP712_TYPES = {
@@ -48,10 +107,12 @@ export async function signTransferWithAuthorization(
   message: TransferWithAuthorizationMessage,
   chainId: number,
   usdcAddress: Address,
+  options?: { rpcUrl?: string },
 ): Promise<Hex> {
+  const domainName = await resolveUsdcEip712DomainName(chainId, usdcAddress, options?.rpcUrl)
   return account.signTypedData({
     domain: {
-      name: usdcEip712DomainName(chainId),
+      name: domainName,
       version: USDC_EIP712_VERSION,
       chainId,
       verifyingContract: usdcAddress,

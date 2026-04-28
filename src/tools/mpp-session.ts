@@ -1,12 +1,17 @@
 /**
- * MPP session 工具：init / fetch / close
+ * MPP session 工具：init / fetch / close / request_close / withdraw（链上）
  * 使用本地 mpp-base 的 baseSession()（Base + USDC，authorize/open 分离）复用 channel
  * 缓存以 account.address 为 key，支持同一账户复用
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Address, Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import type { Account, Address, Hex } from "viem";
+import { privateKeyToAccount, toAccount } from "viem/accounts";
 import { baseSession } from "../mpp-base/index.js";
+import { createQuickWalletSigner } from "../modes/signers/quick-wallet.js";
+import { runQuickWalletDeviceAuthIfNeeded } from "../modes/quick-wallet.js";
+import { getMcpClient, getApiKey } from "../wallets/wallet-mcp-clients.js";
+import { getEnvConfig, getMppBaseSessionChainId } from "../config/env-config.js";
+import type { ClientEvmSigner } from "../x402/types.js";
 import {
   getMppSession,
   setMppSession,
@@ -19,26 +24,56 @@ import {
   createSuccessResponse,
   handleRequestError,
 } from "../utils/response-helpers.js";
-import { getMppBaseSessionChainId } from "../config/env-config.js";
+import { base, baseSepolia } from "viem/chains";
+
+/** 供 baseSession / viem writeContract 使用的账户（本地私钥或托管 toAccount）。 */
+export type MppBaseSessionAccount = Account;
 
 /**
- * 解析 sign_mode 与环境变量，返回 viem account。
- * 首期仅支持 local_private_key（EVM_PRIVATE_KEY）。
+ * 解析 sign_mode：local_private_key（EVM_PRIVATE_KEY）或 quick_wallet（托管 MCP + {@link createQuickWalletSigner} + viem {@link toAccount}）。
  */
-function resolveMppAccount(signMode: string | undefined): ReturnType<typeof privateKeyToAccount> {
+async function resolveMppAccount(
+  signMode: string | undefined,
+  options: { walletLoginProvider: "google" | "gate" }
+): Promise<MppBaseSessionAccount> {
   const mode = signMode ?? "local_private_key";
-  if (mode !== "local_private_key") {
-    throw new Error(
-      `MPP Base 当前仅支持 local_private_key（EVM_PRIVATE_KEY）。` +
-        `quick_wallet / plugin_wallet 暂未实现（需将托管钱包封装为 viem Account）。`
-    );
+  if (mode === "local_private_key") {
+    const rawKey = process.env.EVM_PRIVATE_KEY?.trim() ?? process.env.PRIVATE_KEY?.trim();
+    if (!rawKey) {
+      throw new Error("未设置 EVM_PRIVATE_KEY（或 PRIVATE_KEY），无法为 Base MPP 签名。");
+    }
+    const evmPrivateKey = (rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`) as Hex;
+    return privateKeyToAccount(evmPrivateKey);
   }
-  const rawKey = process.env.EVM_PRIVATE_KEY?.trim() ?? process.env.PRIVATE_KEY?.trim();
-  if (!rawKey) {
-    throw new Error("未设置 EVM_PRIVATE_KEY（或 PRIVATE_KEY），无法为 Base MPP 签名。");
+  if (mode === "quick_wallet") {
+    const envConfig = getEnvConfig();
+    const serverUrl =
+      process.env.QUICK_WALLET_SERVER_URL?.trim() || envConfig.quickWalletServerUrl;
+    const apiKey = process.env.QUICK_WALLET_API_KEY?.trim() || getApiKey();
+    const mcp = await getMcpClient({ serverUrl, apiKey });
+    await runQuickWalletDeviceAuthIfNeeded(mcp, serverUrl, {
+      walletLoginProvider: options.walletLoginProvider,
+    });
+    const signer = await createQuickWalletSigner(mcp, {
+      gateMcpEvmChain: process.env.QUICK_WALLET_MPP_EVM_CHAIN?.trim() || "BASE",
+      evmChainId: getMppBaseSessionChainId(),
+    });
+    if (!signer.signMessage || !signer.signTransaction) {
+      throw new Error("createQuickWalletSigner: 缺少 signMessage/signTransaction，无法接入 MPP。");
+    }
+    return toAccount({
+      address: signer.address,
+      signMessage: ({ message }) => signer.signMessage!({ message }),
+      signTypedData: (typedData) =>
+        signer.signTypedData(
+          typedData as Parameters<ClientEvmSigner["signTypedData"]>[0]
+        ),
+      signTransaction: (tx, opts) => signer.signTransaction!(tx, opts),
+    });
   }
-  const evmPrivateKey = (rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`) as Hex;
-  return privateKeyToAccount(evmPrivateKey);
+  throw new Error(
+    `MPP Base 当前不支持 sign_mode=${mode}。可选：local_private_key、quick_wallet；plugin_wallet 尚未接入。`
+  );
 }
 
 /**
@@ -48,21 +83,44 @@ function resolveMppAccount(signMode: string | undefined): ReturnType<typeof priv
 function resolveBaseSessionEnv(): {
   chainId: number;
   escrowContract?: Address;
+  usdcDomainRpcUrl?: string;
 } {
   const chainId = getMppBaseSessionChainId();
   const escrowRaw =
     process.env.MPP_BASE_ESCROW_CONTRACT?.trim() ??
     process.env.BASE_ESCROW_CONTRACT?.trim();
+  const rpcRaw =
+    process.env.MPP_BASE_RPC_URL?.trim() ?? process.env.BASE_RPC_URL?.trim();
 
   const out: {
     chainId: number;
     escrowContract?: Address;
+    usdcDomainRpcUrl?: string;
   } = { chainId };
 
   if (escrowRaw?.startsWith("0x")) {
     out.escrowContract = escrowRaw as Address;
   }
+  if (rpcRaw) {
+    out.usdcDomainRpcUrl = rpcRaw;
+  }
   return out;
+}
+
+/**
+ * MPP Base 链上写交易 RPC。
+ * 优先级：MPP_BASE_RPC_URL、BASE_RPC_URL；可选入参 rpc_url 覆盖（见 mpp_request_close）。
+ * Base 主网 / Sepolia 使用 viem 默认公共 URL；其他 chainId 须设置环境变量。
+ */
+function resolveMppBaseRpcUrl(chainId: number): string {
+  const explicit =
+    process.env.MPP_BASE_RPC_URL?.trim() ?? process.env.BASE_RPC_URL?.trim();
+  if (explicit) return explicit;
+  if (chainId === base.id) return base.rpcUrls.default.http[0]!;
+  if (chainId === baseSepolia.id) return baseSepolia.rpcUrls.default.http[0]!;
+  throw new Error(
+    `未设置 MPP_BASE_RPC_URL（或 BASE_RPC_URL），且 chainId ${chainId} 无内置默认 RPC。`
+  );
 }
 
 /**
@@ -74,10 +132,15 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
   try {
     const maxDeposit = String(args.max_deposit ?? "1").trim();
     const signMode = args.sign_mode != null ? String(args.sign_mode).trim() : undefined;
+    const effectiveSignMode = signMode || "local_private_key";
+    const walletLoginProvider =
+      args.wallet_login_provider === "google" || args.wallet_login_provider === "gate"
+        ? args.wallet_login_provider
+        : "gate";
     const decimals = args.decimals != null ? Number(args.decimals) : 6;
     const baseOpts = resolveBaseSessionEnv();
 
-    const account = resolveMppAccount(signMode ?? "local_private_key");
+    const account = await resolveMppAccount(effectiveSignMode, { walletLoginProvider });
     const accountAddress = account.address.toLowerCase();
 
     // 检查是否已有该账户的 session
@@ -101,7 +164,7 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
         const newMeta = setMppSession(
           accountAddress,
           sessionManager,
-          { signMode: signMode ?? "local_private_key", maxDeposit }
+          { signMode: effectiveSignMode, maxDeposit }
         );
 
         return createSuccessResponse(
@@ -152,7 +215,7 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
     const meta = setMppSession(
       accountAddress,
       sessionManager,
-      { signMode: signMode ?? "local_private_key", maxDeposit }
+      { signMode: effectiveSignMode, maxDeposit }
     );
 
     return createSuccessResponse(
@@ -247,6 +310,148 @@ export async function handleMppFetch(args: Record<string, unknown>): Promise<Cal
             channelId: channelId ?? null,
             cumulative: cumulative?.toString() ?? "0",
           },
+        },
+        null,
+        2
+      )
+    );
+  } catch (err) {
+    return await handleRequestError(err);
+  }
+}
+
+/**
+ * mpp_request_close: 链上调用托管合约 `requestClose(bytes32 channelId)`。
+ * 不清理本地 session，与 HTTP `mpp_close_session` 独立。
+ */
+export async function handleMppRequestClose(
+  args: Record<string, unknown>
+): Promise<CallToolResult> {
+  try {
+    const accountAddress =
+      args.account_address != null
+        ? String(args.account_address).trim().toLowerCase()
+        : undefined;
+
+    const meta = accountAddress ? getMppSession(accountAddress) : getMppSession();
+    if (!meta) {
+      return createErrorResponse(
+        accountAddress
+          ? `无活跃 MPP 会话（账户 ${accountAddress}）。请先调用 mpp_init_session。`
+          : "无活跃 MPP 会话。请先调用 mpp_init_session。"
+      );
+    }
+
+    const requestCloseOnChain = meta.manager.requestCloseOnChain;
+    if (!requestCloseOnChain) {
+      return createErrorResponse(
+        "当前 SessionManager 不支持链上 requestClose（需使用 Base mpp-base 会话）。"
+      );
+    }
+
+    const channelId = meta.manager.channelId;
+    if (!channelId) {
+      return createErrorResponse(
+        "当前无 channelId。请先使用 mpp_fetch 完成一次 402 并打开通道后再请求链上 requestClose。"
+      );
+    }
+
+    const chainId = meta.manager.chainId ?? resolveBaseSessionEnv().chainId;
+    const rpcArg = args.rpc_url != null ? String(args.rpc_url).trim() : "";
+    const rpcUrl = rpcArg || resolveMppBaseRpcUrl(chainId);
+
+    const { txHash } = await requestCloseOnChain({ rpcUrl });
+
+    return createSuccessResponse(
+      JSON.stringify(
+        {
+          sessionId: meta.sessionId,
+          accountAddress: meta.accountAddress,
+          txHash,
+          chainId,
+          escrowContract: meta.manager.escrowContract ?? null,
+          channelId,
+          message:
+            "已在托管合约上发送 requestClose 交易。本地 session 未清除；HTTP 结算请仍用 mpp_close_session。",
+        },
+        null,
+        2
+      )
+    );
+  } catch (err) {
+    return await handleRequestError(err);
+  }
+}
+
+const BYTES32_HEX_RE = /^0x[a-fA-F0-9]{64}$/;
+
+/**
+ * mpp_withdraw: 链上调用托管合约 `withdraw(bytes32 channelId)`，取回 requestClose 结算后的剩余资金。
+ * 须在链上完成 `requestClose` 且经过合约规定的等待期之后调用（时机由合约 revert 约束）。
+ */
+export async function handleMppWithdraw(args: Record<string, unknown>): Promise<CallToolResult> {
+  try {
+    const accountAddress =
+      args.account_address != null
+        ? String(args.account_address).trim().toLowerCase()
+        : undefined;
+
+    const meta = accountAddress ? getMppSession(accountAddress) : getMppSession();
+    if (!meta) {
+      return createErrorResponse(
+        accountAddress
+          ? `无活跃 MPP 会话（账户 ${accountAddress}）。请先调用 mpp_init_session。`
+          : "无活跃 MPP 会话。请先调用 mpp_init_session。"
+      );
+    }
+
+    const withdrawOnChain = meta.manager.withdrawOnChain;
+    if (!withdrawOnChain) {
+      return createErrorResponse(
+        "当前 SessionManager 不支持链上 withdraw（需使用 Base mpp-base 会话）。"
+      );
+    }
+
+    let channelIdArg: Hex | undefined;
+    if (args.channel_id != null && String(args.channel_id).trim() !== "") {
+      const raw = String(args.channel_id).trim();
+      if (!BYTES32_HEX_RE.test(raw)) {
+        return createErrorResponse(
+          "channel_id 须为 bytes32：0x 前缀 + 64 位十六进制。省略时则使用当前会话中的 channelId（须通道仍在本地为已打开）。"
+        );
+      }
+      channelIdArg = raw as Hex;
+    } else {
+      const channelId = meta.manager.channelId;
+      if (!channelId) {
+        return createErrorResponse(
+          "当前无 channel_id：请先 mpp_fetch 打开通道，或在 HTTP close 清空本地状态后显式传入 channel_id。"
+        );
+      }
+    }
+
+    const chainId = meta.manager.chainId ?? resolveBaseSessionEnv().chainId;
+    const rpcArg = args.rpc_url != null ? String(args.rpc_url).trim() : "";
+    const rpcUrl = rpcArg || resolveMppBaseRpcUrl(chainId);
+
+    const { txHash } = await withdrawOnChain({
+      rpcUrl,
+      channelId: channelIdArg,
+    });
+
+    const effectiveChannelId = channelIdArg ?? meta.manager.channelId;
+
+    return createSuccessResponse(
+      JSON.stringify(
+        {
+          sessionId: meta.sessionId,
+          accountAddress: meta.accountAddress,
+          txHash,
+          chainId,
+          escrowContract: meta.manager.escrowContract ?? null,
+          channelId: effectiveChannelId,
+          message:
+            "已在托管合约上发送 withdraw 交易。须此前已在链上 requestClose 且已过合约等待期；否则交易会 revert。",
         },
         null,
         2

@@ -25,6 +25,8 @@ import {
   handleMppInitSession,
   handleMppFetch,
   handleMppCloseSession,
+  handleMppRequestClose,
+  handleMppWithdraw,
   handleCreateSignature,
   handleSubmitPayment,
   handleGatePayAuth,
@@ -98,6 +100,14 @@ async function main(): Promise<void> {
 
     if (name === "mpp_close_session") {
       return await handleMppCloseSession(args ?? {});
+    }
+
+    if (name === "mpp_request_close") {
+      return await handleMppRequestClose(args ?? {});
+    }
+
+    if (name === "mpp_withdraw") {
+      return await handleMppWithdraw(args ?? {});
     }
 
     if (name === "x402_create_signature") {

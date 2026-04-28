@@ -2,9 +2,19 @@
  * Base + USDC Session (mpp-base)
  *
  * 客户端仅做 EIP-712（transferAuth：EIP-3009 + openAuth：OpenAuthorization + voucher：AgentPaymentChannel）；上链由服务端完成。
- * 首次 402 建立通道时 payload action 为 `open`：含 openAuth（托管合约）、transferAuth（USDC）、voucher；USDC domain 由服务端按标准校验时自行组装。
+ * 首次 402 建立通道时 payload action 为 `open`：含 openAuth（托管合约）、transferAuth（USDC）、voucher；USDC EIP-712 domain.name 与链上 `name()` 一致（默认 RPC 读 Base/Sepolia，可选 `usdcDomainRpcUrl`）。
  */
-import { type Address, type Hex, parseUnits, getAddress } from 'viem'
+import {
+  type Account,
+  type Address,
+  type Hex,
+  createWalletClient,
+  defineChain,
+  http,
+  parseUnits,
+  getAddress,
+} from 'viem'
+import { base, baseSepolia } from 'viem/chains'
 
 // 引入 mppx：与 client/internal/Fetch、Receipt、tempo/sessionManager.close 行为对齐
 import { Challenge, Credential, Receipt } from 'mppx'
@@ -23,12 +33,41 @@ import {
 // 默认配置
 const DEFAULT_CHAIN_ID = 8453  // Base Mainnet
 const DEFAULT_ESCROW_CONTRACT: Record<number, Address> = {
-  8453: '0xe1c4d3dce17bc111181ddf716f75bae49e61a336',
+  8453: '0x00000000B4ecdF042B75e3afBf1810F323F82D09',
   84532: '0xabB719022DBDBb359dd0D2ad6abfc2EBd513bd15',
 }
 const DEFAULT_USDC: Record<number, Address> = {
   8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
   84532: '0x036cbd53842c5426634e7929541ec2318f3dcf7e',
+}
+
+/** 托管合约 channel 相关写操作最小 ABI */
+const escrowChannelActionsAbi = [
+  {
+    type: 'function',
+    name: 'requestClose',
+    stateMutability: 'nonpayable' as const,
+    inputs: [{ name: 'channelId', type: 'bytes32' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'withdraw',
+    stateMutability: 'nonpayable' as const,
+    inputs: [{ name: 'channelId', type: 'bytes32' }],
+    outputs: [],
+  },
+] as const
+
+function chainDefinitionForRpc(chainId: number, rpcUrl: string) {
+  if (chainId === base.id) return base
+  if (chainId === baseSepolia.id) return baseSepolia
+  return defineChain({
+    id: chainId,
+    name: 'mpp-base-custom',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [rpcUrl] } },
+  })
 }
 
 /** 与 mppx `tempo` session 方法一致（Accept-Payment 协商） */
@@ -164,6 +203,10 @@ export interface BaseSessionParams {
   ) => Promise<string | undefined>
   /** 2xx 响应且存在合法 `Payment-Receipt` 时触发（与 mppx Receipt 模块一致） */
   onPaymentReceipt?: (receipt: PaymentReceipt) => void
+  /**
+   * 非 Base / Base Sepolia 时，用于 RPC 读取 USDC `name()` 以构造 EIP-712 domain（与 MPP_BASE_RPC_URL 等可对齐）。
+   */
+  usdcDomainRpcUrl?: string
 }
 
 /**
@@ -253,10 +296,23 @@ export interface BaseSessionManager {
   readonly opened: boolean
   readonly channelId: Hex | null
   readonly cumulative: bigint
+  /** 与 `resolvedEscrow` / EIP-712 一致 */
+  readonly chainId: number
+  readonly escrowContract: Address
 
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
   /** 与 `mppx` `sessionManager().close()` 一致：签 close 凭证并向 `fetch` 用过的 URL POST，解析 `Payment-Receipt` */
   close(): Promise<SessionCloseReceipt | undefined>
+  /**
+   * 链上调用托管合约 `requestClose(channelId)`（需已打开 channel）。
+   * 不清理本地 channel、不调用 HTTP close；与 {@link close} 独立。
+   */
+  requestCloseOnChain(params: { rpcUrl: string }): Promise<{ txHash: Hex }>
+  /**
+   * 链上调用托管合约 `withdraw(channelId)`。须在链上 `requestClose` 且经过合约规定的等待期之后调用。
+   * 可传 `channelId` 覆盖（例如 HTTP {@link close} 已清空本地 channel 后仍凭已知 id 提现）。
+   */
+  withdrawOnChain(params: { rpcUrl: string; channelId?: Hex }): Promise<{ txHash: Hex }>
 }
 
 /**
@@ -275,6 +331,7 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
     fetchImpl = globalThis.fetch,
     onChallenge,
     onPaymentReceipt,
+    usdcDomainRpcUrl,
   } = params
 
   const resolvedEscrow = escrowContract ?? DEFAULT_ESCROW_CONTRACT[chainId]
@@ -312,6 +369,7 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       transferMessage,
       chainId,
       resolvedCurrency,
+      { rpcUrl: usdcDomainRpcUrl },
     )
 
     const salt = randomBytes32()
@@ -461,6 +519,14 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       return channel?.cumulativeAmount ?? 0n
     },
 
+    get chainId() {
+      return chainId
+    },
+
+    get escrowContract() {
+      return resolvedEscrow
+    },
+
     async fetch(input, init) {
       lastUrl = input
       const resolvedMethod =
@@ -569,6 +635,72 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
       lastUrl = null
 
       return sessionReceipt
+    },
+
+    async requestCloseOnChain(params: { rpcUrl: string }) {
+      const { rpcUrl } = params
+      if (!rpcUrl?.trim()) {
+        throw new Error('requestCloseOnChain requires a non-empty rpcUrl')
+      }
+      const closeChannelId = channel?.channelId
+      if (!channel?.opened || !closeChannelId) {
+        throw new Error(
+          'Channel not opened — complete a paid mpp_fetch (402) first so channelId exists.',
+        )
+      }
+
+      const chain = chainDefinitionForRpc(chainId, rpcUrl.trim())
+      const walletClient = createWalletClient({
+        account: account as Account,
+        chain,
+        transport: http(rpcUrl.trim()),
+      })
+
+      const txHash = await walletClient.writeContract({
+        address: resolvedEscrow,
+        abi: escrowChannelActionsAbi,
+        functionName: 'requestClose',
+        args: [closeChannelId],
+      })
+      return { txHash }
+    },
+
+    async withdrawOnChain(params: { rpcUrl: string; channelId?: Hex }) {
+      const { rpcUrl, channelId: channelIdArg } = params
+      if (!rpcUrl?.trim()) {
+        throw new Error('withdrawOnChain requires a non-empty rpcUrl')
+      }
+      let withdrawChannelId: Hex
+      if (channelIdArg) {
+        withdrawChannelId = channelIdArg
+      } else {
+        if (!channel?.opened || !channel.channelId) {
+          throw new Error(
+            'Channel not opened — complete mpp_fetch (402) first, or pass channelId (e.g. after HTTP close cleared local state).',
+          )
+        }
+        withdrawChannelId = channel.channelId
+      }
+
+      const chain = chainDefinitionForRpc(chainId, rpcUrl.trim())
+      const walletClient = createWalletClient({
+        account: account as Account,
+        chain,
+        transport: http(rpcUrl.trim()),
+      })
+
+      const txHash = await walletClient.writeContract({
+        address: resolvedEscrow,
+        abi: escrowChannelActionsAbi,
+        functionName: 'withdraw',
+        args: [withdrawChannelId],
+      })
+
+      channel = undefined
+      lastChallenge = undefined
+      lastUrl = null
+      
+      return { txHash }
     },
   }
 }

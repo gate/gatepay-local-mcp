@@ -15,3 +15,4 @@ export {
   createQuickWalletSolanaSigner,
   createSignerFromMcpWallet,
 } from "./quick-wallet.js";
+export type { CreateQuickWalletSignerOptions } from "./quick-wallet.js";

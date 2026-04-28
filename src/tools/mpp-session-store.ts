@@ -3,6 +3,8 @@
  * 同一账户多次 init 不会重建实例，保持 channel 状态
  */
 
+import type { Address, Hex } from "viem";
+
 /**
  * MPP SessionManager 最小接口（mppx tempo 或本地 mpp-base baseSession）。
  * 运行时使用实际实例，这里仅用于类型提示。
@@ -11,8 +13,19 @@ export interface MppSessionManager {
   readonly channelId: string | undefined;
   readonly cumulative: bigint;
   readonly opened: boolean;
+  /** mpp-base：与打开通道时 EIP-712 / 合约地址一致 */
+  readonly chainId?: number;
+  readonly escrowContract?: Address;
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response & MppPaymentResponse>;
   close(): Promise<MppSessionReceipt | undefined>;
+  /**
+   * mpp-base：链上 `requestClose(bytes32)`；不清理本地 session，与 HTTP close 独立。
+   */
+  requestCloseOnChain?(params: { rpcUrl: string }): Promise<{ txHash: Hex }>;
+  /**
+   * mpp-base：链上 `withdraw(bytes32)`；须在链上 requestClose 且经过合约等待期之后（由合约校验）。
+   */
+  withdrawOnChain?(params: { rpcUrl: string; channelId?: Hex }): Promise<{ txHash: Hex }>;
 }
 
 export interface MppPaymentResponse extends Response {

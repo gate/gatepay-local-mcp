@@ -116,6 +116,32 @@ export function extractSignatureFromMcpResult(data: Record<string, unknown>): `0
   return null;
 }
 
+/**
+ * 从 dex_wallet_sign_transaction 等响应中解析 **完整已签名 EVM raw tx**（hex），供 eth_sendRawTransaction。
+ */
+export function extractSignedEvmRawTransactionHex(
+  data: Record<string, unknown>
+): `0x${string}` | null {
+  const keys = [
+    "signed_transaction",
+    "signedTransaction",
+    "raw_transaction",
+    "raw_tx",
+    "transaction",
+    "signed_tx",
+    "signedTx",
+  ] as const;
+  for (const k of keys) {
+    const v = data[k];
+    if (typeof v !== "string" || v.length < 80) continue;
+    const h = v.startsWith("0x") ? v : `0x${v}`;
+    if (/^0x[0-9a-fA-F]+$/i.test(h) && h.length >= 100) {
+      return h as `0x${string}`;
+    }
+  }
+  return null;
+}
+
 export function extractQuickWalletSolanaSignature(
   data: Record<string, unknown>
 ): { signatureHex: string; signatureBase58: string; publicKeyHex: string } | null {

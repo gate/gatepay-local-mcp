@@ -1,4 +1,11 @@
 import { base58 } from "@scure/base";
+import {
+  hashMessage,
+  serializeTransaction,
+  type Hex,
+  type SignableMessage,
+  type TransactionSerializable,
+} from "viem";
 import type { ClientEvmSigner, ClientSvmSigner } from "../../x402/types.js";
 import type { GateMcpClient } from "../../wallets/wallet-mcp-clients.js";
 import { buildEip712TypedDataDigest } from "../../x402/utils.js";
@@ -6,6 +13,7 @@ import {
   parseMcpToolResult,
   extractSignatureFromMcpResult,
   extractQuickWalletSolanaSignature,
+  extractSignedEvmRawTransactionHex,
   getBase58EncodedWireTransaction,
 } from "./shared-utils.js";
 import { txCheckin } from "../tx-checkin/checkin.js";
@@ -35,12 +43,24 @@ async function getCheckinToken(
   return result.checkin_token;
 }
 
+export interface CreateQuickWalletSignerOptions {
+  evmAddress?: `0x${string}`;
+  /** 未设置 gateMcpEvmChain 时用于 dex_wallet_sign_message（默认 ETH） */
+  chain?: string;
+  /**
+   * Gate MCP 链标识（如 BASE），与 {@link evmChainId} 一起用于 MPP：`dex_wallet_sign_transaction` + checkin。
+   */
+  gateMcpEvmChain?: string;
+  /** 如 8453 / 84532；传入后启用链上交易签名（viem writeContract） */
+  evmChainId?: number;
+}
+
 /**
  * 创建快速托管钱包 Signer (用于 quick_wallet 签名模式)
  */
 export async function createQuickWalletSigner(
   mcp: GateMcpClient,
-  options?: { evmAddress?: `0x${string}`; chain?: string },
+  options?: CreateQuickWalletSignerOptions,
 ): Promise<ClientEvmSigner> {
   let address: `0x${string}`;
   if (options?.evmAddress) {
@@ -57,11 +77,14 @@ export async function createQuickWalletSigner(
     address = evm as `0x${string}`;
   }
 
-  const chain = options?.chain ?? "ETH";
+  const mcpChain =
+    options?.gateMcpEvmChain?.trim() || options?.chain?.trim() || "ETH";
+  const evmChainIdOpt = options?.evmChainId;
+  const txMcpChain = options?.gateMcpEvmChain?.trim() || "BASE";
 
   const signDigest = async (digest: `0x${string}`, intent?: string): Promise<`0x${string}`> => {
     const digestForMcp = digest.replace(/^0x/i, "");
-    const checkinToken = await getCheckinToken(mcp, address, chain, "evm", { message:intent });
+    const checkinToken = await getCheckinToken(mcp, address, mcpChain, "evm", { message: intent });
     const result = await mcp.walletSignMessage("EVM", digestForMcp, checkinToken);
     const data = parseMcpToolResult<Record<string, unknown>>(result);
     const sig = data && extractSignatureFromMcpResult(data);
@@ -84,7 +107,9 @@ export async function createQuickWalletSigner(
     const digestForMcp = digest.replace(/^0x/i, "");
     console.error("[createSignerFromMcpWallet] typedData digest:", digestForMcp);
     
-    const checkinToken = await getCheckinToken(mcp, address, chain, "evm", {message:digestForMcp})
+    const checkinToken = await getCheckinToken(mcp, address, mcpChain, "evm", {
+      message: digestForMcp,
+    });
     const result = await mcp.walletSignMessage("EVM", digestForMcp, checkinToken);
 
     const data = parseMcpToolResult<Record<string, unknown>>(result);
@@ -108,10 +133,61 @@ export async function createQuickWalletSigner(
     return normalizedSig as `0x${string}`;
   };
 
+  async function signMessage({ message }: { message: SignableMessage }): Promise<Hex> {
+    const hashed = hashMessage(message);
+    return signDigest(hashed as `0x${string}`, hashed.replace(/^0x/i, ""));
+  }
+
+  async function signTransaction(
+    transaction: TransactionSerializable,
+    opts?: { serializer?: typeof serializeTransaction },
+  ): Promise<Hex> {
+    if (evmChainIdOpt == null) {
+      throw new Error(
+        "createQuickWalletSigner: pass evmChainId (and gateMcpEvmChain, e.g. BASE) to enable EVM signTransaction for MPP chain writes."
+      );
+    }
+    const serializer = opts?.serializer ?? serializeTransaction;
+    const signableTransaction =
+      transaction.type === "eip4844"
+        ? { ...transaction, sidecars: false as const }
+        : transaction;
+    const unsignedSerialized = serializer(signableTransaction as never) as Hex;
+    const txBundle = {
+      tx: unsignedSerialized,
+      category: "EVM",
+      enc: "",
+      network: { chainId: 0 },
+      type: "",
+    };
+    console.error("[createQuickWalletSigner] rawHexNo0x:", unsignedSerialized);
+    const checkinToken = await getCheckinToken(mcp, address, "evm", txMcpChain, {
+      message: JSON.stringify(txBundle),
+    });
+    const result = await mcp.walletSignTransaction(
+      txMcpChain,
+      { raw_tx: unsignedSerialized },
+      checkinToken,
+    );
+    const data = parseMcpToolResult<Record<string, unknown>>(result);
+    if (!data) {
+      throw new Error("createQuickWalletSigner: walletSignTransaction returned empty MCP payload");
+    }
+    const signed = extractSignedEvmRawTransactionHex(data);
+    if (!signed) {
+      throw new Error(
+        `createQuickWalletSigner: could not parse signed raw tx from dex_wallet_sign_transaction (keys: ${Object.keys(data).join(", ")})`
+      );
+    }
+    return signed;
+  }
+
   return {
     address,
     signTypedData,
     signDigest,
+    signMessage,
+    signTransaction,
   };
 }
 

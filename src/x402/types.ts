@@ -2,6 +2,7 @@
  * Standalone x402 types (no @x402/* deps).
  */
 import type { TransactionSigner } from "@solana/kit";
+import type { Hex, SignableMessage } from "viem";
 
 export type Network = string;
 
@@ -58,6 +59,9 @@ export type ClientEvmSigner = {
     message: Record<string, unknown>;
   }): Promise<`0x${string}`>;
   signDigest?(digest: `0x${string}`, intent?: string): Promise<`0x${string}`>;
+  /** 托管钱包 MPP / Base 链上写合约时由 createQuickWalletSigner 填充 */
+  signMessage?(args: { message: SignableMessage }): Promise<Hex>;
+  signTransaction?(transaction: unknown, options?: unknown): Promise<Hex>;
 };
 
 export type ClientSvmSigner = TransactionSigner;

@@ -99,6 +99,8 @@ async function main(): Promise<void> {
     assert.ok(toolNames.includes("mpp_init_session"), "应该包含 mpp_init_session 工具");
     assert.ok(toolNames.includes("mpp_fetch"), "应该包含 mpp_fetch 工具");
     assert.ok(toolNames.includes("mpp_close_session"), "应该包含 mpp_close_session 工具");
+    assert.ok(toolNames.includes("mpp_request_close"), "应该包含 mpp_request_close 工具");
+    assert.ok(toolNames.includes("mpp_withdraw"), "应该包含 mpp_withdraw 工具");
     assert.ok(toolNames.includes("x402_create_signature"), "应该包含 x402_create_signature 工具");
     assert.ok(toolNames.includes("x402_submit_payment"), "应该包含 x402_submit_payment 工具");
 

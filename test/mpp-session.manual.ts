@@ -1,5 +1,5 @@
 /**
- * 一键跑通 MPP session：init → fetch（循环 3 次）→ close
+ * 一键跑通 MPP session：init → fetch（循环 3 次）→ [可选链上 requestClose] → close
  *
  * 依赖：
  * - EVM_PRIVATE_KEY（或 PRIVATE_KEY）
@@ -9,6 +9,7 @@
  * - MPP_SESSION_TEST_URL — 完整 URL，默认 http://localhost:8080/api/image/generate
  * - MPP_SESSION_TEST_BODY — POST 体（合法 JSON 字符串），默认 {"prompt":"mpp-session-manual-test"}
  * - GATE_PAY_ENV、MPP_BASE_CHAIN_ID、MPP_BASE_ESCROW_CONTRACT 等同 mpp-session 工具
+ * - MPP_SESSION_TEST_REQUEST_CLOSE=1 时，在 close 之前调用 handleMppRequestClose（会发测试网链上交易）
  *
  * 运行：npm run test:mpp-session
  */
@@ -21,6 +22,8 @@ import {
   handleMppCloseSession,
   handleMppFetch,
   handleMppInitSession,
+  handleMppRequestClose,
+  handleMppWithdraw,
 } from "../src/tools/mpp-session.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,7 +32,7 @@ config({ path: join(packageRoot, ".env") });
 
 const DEFAULT_URL = "http://localhost:8080/api/image/generate";
 const DEFAULT_BODY = JSON.stringify({ prompt: "mpp-session-manual-test" });
-const FETCH_ROUNDS = 3;
+const FETCH_ROUNDS = 1;
 
 function printToolResult(label: string, result: CallToolResult): boolean {
   const text =
@@ -56,7 +59,7 @@ async function main(): Promise<void> {
     "handleMppInitSession",
     await handleMppInitSession({
       max_deposit: "1",
-      sign_mode: "local_private_key",
+      sign_mode: "quick_wallet",  // local_private_key, quick_wallet
       decimals: 6,
     }),
   );
@@ -74,6 +77,23 @@ async function main(): Promise<void> {
     if (!ok) process.exit(1);
   }
 
+  // ----------- requestClose -----------
+  ok = printToolResult(
+    "handleMppRequestClose",
+    await handleMppRequestClose({}),
+  );
+  if (!ok) process.exit(1);
+
+
+  // // ----------- withdraw -----------
+  // ok = printToolResult(
+  //   "handleMppWithdraw",
+  //   await handleMppWithdraw({}),
+  // );
+  // if (!ok) process.exit(1);
+
+
+  // ----------- close -----------
   ok = printToolResult(
     "handleMppCloseSession",
     await handleMppCloseSession({}),
