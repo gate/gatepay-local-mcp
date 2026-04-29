@@ -8,8 +8,13 @@ import type { Account, Address, Hex } from "viem";
 import { privateKeyToAccount, toAccount } from "viem/accounts";
 import { baseSession } from "../mpp-base/index.js";
 import { createQuickWalletSigner } from "../modes/signers/quick-wallet.js";
+import {
+  connectPluginWalletEvmForSigning,
+  createPluginWalletSigner,
+} from "../modes/signers/plugin-wallet.js";
 import { runQuickWalletDeviceAuthIfNeeded } from "../modes/quick-wallet.js";
 import { getMcpClient, getApiKey } from "../wallets/wallet-mcp-clients.js";
+import { getPluginWalletClient } from "../wallets/plugin-wallet-client.js";
 import { getEnvConfig, getMppBaseSessionChainId } from "../config/env-config.js";
 import type { ClientEvmSigner } from "../x402/types.js";
 import {
@@ -30,7 +35,8 @@ import { base, baseSepolia } from "viem/chains";
 export type MppBaseSessionAccount = Account;
 
 /**
- * 解析 sign_mode：local_private_key（EVM_PRIVATE_KEY）或 quick_wallet（托管 MCP + {@link createQuickWalletSigner} + viem {@link toAccount}）。
+ * 解析 sign_mode：local_private_key、quick_wallet（托管 MCP + {@link createQuickWalletSigner}）、
+ * plugin_wallet（浏览器插件 MCP + {@link createPluginWalletSigner} + viem {@link toAccount}）。
  */
 async function resolveMppAccount(
   signMode: string | undefined,
@@ -71,8 +77,145 @@ async function resolveMppAccount(
       signTransaction: (tx, opts) => signer.signTransaction!(tx, opts),
     });
   }
+  if (mode === "plugin_wallet") {
+    const envConfig = getEnvConfig();
+    const pluginWalletBaseUrl = process.env.PLUGIN_WALLET_SERVER_URL ?? envConfig.pluginWalletServerUrl;
+    const pluginWalletToken = process.env.PLUGIN_WALLET_TOKEN;
+    const pluginWalletServerUrl = pluginWalletToken 
+      ? `${pluginWalletBaseUrl}?token=${encodeURIComponent(pluginWalletToken)}`
+      : undefined;
+    const client = await getPluginWalletClient({ serverUrl: pluginWalletServerUrl });
+    const address = await connectPluginWalletEvmForSigning(client);
+    const signer = createPluginWalletSigner(client, address);
+    if (!signer.signMessage || !signer.signTypedData || !signer.signTransaction) {
+      throw new Error(
+        "createPluginWalletSigner: 缺少 signMessage/signTypedData/signTransaction，无法接入 MPP。",
+      );
+    }
+    return toAccount({
+      address: signer.address,
+      signMessage: ({ message }) => signer.signMessage!({ message }),
+      signTypedData: (typedData) =>
+        signer.signTypedData(
+          typedData as Parameters<ClientEvmSigner["signTypedData"]>[0]
+        ),
+      signTransaction: (tx, opts) => signer.signTransaction!(tx, opts),
+    });
+  }
   throw new Error(
-    `MPP Base 当前不支持 sign_mode=${mode}。可选：local_private_key、quick_wallet；plugin_wallet 尚未接入。`
+    `MPP Base 当前不支持 sign_mode=${mode}。可选：local_private_key、quick_wallet、plugin_wallet。`
+  );
+}
+
+type MppLoadStrategy = "explicit" | "auto";
+
+type MppLoadAttempt = {
+  signMode: string;
+  /** used = 本方式已用于当前 session；skipped = 未尝试（如未配置私钥）；failed = 已尝试但失败（仅 auto 链式靠后的方式会记录） */
+  outcome: "used" | "skipped" | "failed";
+  detail?: string;
+};
+
+function hasEvmPrivateKeyInEnv(): boolean {
+  const raw = process.env.EVM_PRIVATE_KEY?.trim();
+  return Boolean(raw);
+}
+
+/**
+ * 解析账户与 sign_mode：显式 `sign_mode` 时只走该方式；否则按 local_private_key（仅当已配置 EVM 私钥）→ quick_wallet → plugin_wallet 级联，各地址不同故只建一条成功路径。
+ */
+async function resolveAccountForMppInit(
+  explicitSignMode: string | undefined,
+  walletLoginProvider: "google" | "gate"
+): Promise<{
+  account: MppBaseSessionAccount;
+  effectiveSignMode: string;
+  loadStrategy: MppLoadStrategy;
+  loadAttempts: MppLoadAttempt[];
+}> {
+  if (explicitSignMode) {
+    const account = await resolveMppAccount(explicitSignMode, { walletLoginProvider });
+    return {
+      account,
+      effectiveSignMode: explicitSignMode,
+      loadStrategy: "explicit",
+      loadAttempts: [{ signMode: explicitSignMode, outcome: "used" }],
+    };
+  }
+
+  const loadAttempts: MppLoadAttempt[] = [];
+
+  if (hasEvmPrivateKeyInEnv()) {
+    try {
+      const account = await resolveMppAccount("local_private_key", { walletLoginProvider });
+      loadAttempts.push({ signMode: "local_private_key", outcome: "used" });
+      return {
+        account,
+        effectiveSignMode: "local_private_key",
+        loadStrategy: "auto",
+        loadAttempts,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `已设置 EVM_PRIVATE_KEY，但 local_private_key 无法加载: ${msg}`,
+      );
+    }
+  }
+
+  loadAttempts.push({
+    signMode: "local_private_key",
+    outcome: "skipped",
+    detail: "未设置 EVM_PRIVATE_KEY",
+  });
+
+  try {
+    const account = await resolveMppAccount("quick_wallet", { walletLoginProvider });
+    loadAttempts.push({ signMode: "quick_wallet", outcome: "used" });
+    return {
+      account,
+      effectiveSignMode: "quick_wallet",
+      loadStrategy: "auto",
+      loadAttempts,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    loadAttempts.push({ signMode: "quick_wallet", outcome: "failed", detail: msg });
+  }
+
+  if (!process.env.PLUGIN_WALLET_TOKEN?.trim()) {
+    loadAttempts.push({
+      signMode: "plugin_wallet",
+      outcome: "failed",
+      detail: "未设置 PLUGIN_WALLET_TOKEN",
+    });
+    const failedSummary = loadAttempts
+      .filter((a) => a.outcome === "failed")
+      .map((a) => `${a.signMode}: ${a.detail ?? ""}`);
+    throw new Error(
+      `未指定 sign_mode 时自动选择失败：无本地私钥，且 quick_wallet 未成功；plugin_wallet 需设置 PLUGIN_WALLET_TOKEN。${failedSummary.join("；")}`,
+    );
+  }
+
+  try {
+    const account = await resolveMppAccount("plugin_wallet", { walletLoginProvider });
+    loadAttempts.push({ signMode: "plugin_wallet", outcome: "used" });
+    return {
+      account,
+      effectiveSignMode: "plugin_wallet",
+      loadStrategy: "auto",
+      loadAttempts,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    loadAttempts.push({ signMode: "plugin_wallet", outcome: "failed", detail: msg });
+  }
+
+  const failedSummary = loadAttempts
+    .filter((a) => a.outcome === "failed")
+    .map((a) => `${a.signMode}: ${a.detail ?? ""}`);
+  throw new Error(
+    `未指定 sign_mode 时自动选择失败：无本地私钥，且 quick_wallet 与 plugin_wallet 均未成功。${failedSummary.join("；")}`,
   );
 }
 
@@ -125,14 +268,16 @@ function resolveMppBaseRpcUrl(chainId: number): string {
 
 /**
  * mpp_init_session: 初始化 Base MPP session（SessionManager），以 account.address 为 key 缓存
- * - 若账户已存在：复用现有 SessionManager 实例，保持 channel 状态
- * - 若不存在：创建新实例
+ * - 显式 sign_mode：只加载该方式
+ * - 未指定 sign_mode：有 EVM_PRIVATE_KEY/PRIVATE_KEY 则用 local_private_key，否则按 quick_wallet → plugin_wallet 尝试（成功即停）
+ * - 若账户已存在：复用现有 SessionManager 实例，保持 channel 状态；否则创建新实例
+ * - 成功响应含 loadStrategy（explicit|auto）与 loadAttempts 供 agent 了解加载过程
  */
 export async function handleMppInitSession(args: Record<string, unknown>): Promise<CallToolResult> {
   try {
     const maxDeposit = String(args.max_deposit ?? "1").trim();
-    const signMode = args.sign_mode != null ? String(args.sign_mode).trim() : undefined;
-    const effectiveSignMode = signMode || "local_private_key";
+    const signModeRaw = args.sign_mode != null ? String(args.sign_mode).trim() : "";
+    const explicitSignMode = signModeRaw || undefined;
     const walletLoginProvider =
       args.wallet_login_provider === "google" || args.wallet_login_provider === "gate"
         ? args.wallet_login_provider
@@ -140,7 +285,10 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
     const decimals = args.decimals != null ? Number(args.decimals) : 6;
     const baseOpts = resolveBaseSessionEnv();
 
-    const account = await resolveMppAccount(effectiveSignMode, { walletLoginProvider });
+    const { account, effectiveSignMode, loadStrategy, loadAttempts } = await resolveAccountForMppInit(
+      explicitSignMode,
+      walletLoginProvider
+    );
     const accountAddress = account.address.toLowerCase();
 
     // 检查是否已有该账户的 session
@@ -173,6 +321,8 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
               sessionId: newMeta.sessionId,
               accountAddress: newMeta.accountAddress,
               signMode: newMeta.signMode,
+              loadStrategy,
+              loadAttempts,
               maxDeposit: newMeta.maxDeposit,
               phase: "reinit",
               previousMaxDeposit: existing.maxDeposit,
@@ -190,6 +340,8 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
             sessionId: existing.sessionId,
             accountAddress: existing.accountAddress,
             signMode: existing.signMode,
+            loadStrategy,
+            loadAttempts,
             maxDeposit: existing.maxDeposit,
             phase: "reused",
             opened: existing.manager.opened,
@@ -224,13 +376,17 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
           sessionId: meta.sessionId,
           accountAddress: meta.accountAddress,
           signMode: meta.signMode,
+          loadStrategy,
+          loadAttempts,
           maxDeposit: meta.maxDeposit,
           phase: "initialized",
           opened: false,
           channelId: null,
           cumulative: "0",
           message:
-            "会话已初始化。首次 mpp_fetch 发起请求并收到 402 后，会自动打开通道（channel）。",
+            loadStrategy === "auto"
+              ? `会话已初始化（自动选用 ${meta.signMode}）。首次 mpp_fetch 在收到 402 后会自动打开通道（channel）。loadAttempts 记录了级联过程。`
+              : "会话已初始化。首次 mpp_fetch 发起请求并收到 402 后，会自动打开通道（channel）。",
         },
         null,
         2

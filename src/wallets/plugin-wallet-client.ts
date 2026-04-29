@@ -11,7 +11,20 @@ export interface PluginWalletClient {
   signMessage(message: string, address: string): Promise<unknown>;
   /** 切换钱包当前连接的区块链网络 */
   switchChain(chainId: string): Promise<unknown>;
-  
+  /**
+   * EVM：签名交易但不广播（插件 MCP `sign_transaction`）。
+   * 各字段为 hex 字符串（value / gas / gasPrice / nonce 等与 eth 一致）。
+   */
+  evmSignTransaction(params: {
+    from: string;
+    to: string;
+    value: string;
+    data: string;
+    gas: string;
+    gasPrice: string;
+    nonce: string;
+  }): Promise<unknown>;
+
   // Solana 相关方法
   /** 连接 Solana 钱包账户，获取用户授权和公钥地址 */
   solConnectWallet(): Promise<unknown>;
@@ -33,7 +46,6 @@ let instanceUrl: string | null = null;
 export function getPluginWalletServerUrl(): string | undefined {
   const baseUrl = process.env.PLUGIN_WALLET_SERVER_URL?.trim();
   const token = process.env.PLUGIN_WALLET_TOKEN?.trim();
-  
   if (!baseUrl || !token) {
     return undefined;
   }
@@ -122,6 +134,18 @@ class BrowserWalletMcpClient implements PluginWalletClient {
     return this.callTool("switch_chain", {
       chainId,
     });
+  }
+
+  async evmSignTransaction(params: {
+    from: string;
+    to: string;
+    value: string;
+    data: string;
+    gas: string;
+    gasPrice: string;
+    nonce: string;
+  }): Promise<unknown> {
+    return this.callTool("sign_transaction", params);
   }
 
   async solConnectWallet(): Promise<unknown> {

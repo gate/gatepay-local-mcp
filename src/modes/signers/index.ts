@@ -5,6 +5,7 @@ export {
 } from "./local-private-key.js";
 
 export {
+  connectPluginWalletEvmForSigning,
   createPluginWalletSigner,
   createPluginWalletSolanaSigner,
   createSignerFromPluginWallet,

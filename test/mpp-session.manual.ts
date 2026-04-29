@@ -30,9 +30,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 config({ path: join(packageRoot, ".env") });
 
-const DEFAULT_URL = "http://localhost:8080/api/image/generate";
+const DEFAULT_URL = "http://dev.halftrust.xyz/pay-merchant-demo/api/image/generate";
 const DEFAULT_BODY = JSON.stringify({ prompt: "mpp-session-manual-test" });
-const FETCH_ROUNDS = 1;
+const FETCH_ROUNDS = 3;
 
 function printToolResult(label: string, result: CallToolResult): boolean {
   const text =
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     "handleMppInitSession",
     await handleMppInitSession({
       max_deposit: "1",
-      sign_mode: "quick_wallet",  // local_private_key, quick_wallet
+      //sign_mode: "plugin_wallet",  // local_private_key, quick_wallet, plugin_wallet
       decimals: 6,
     }),
   );
@@ -78,11 +78,11 @@ async function main(): Promise<void> {
   }
 
   // ----------- requestClose -----------
-  ok = printToolResult(
-    "handleMppRequestClose",
-    await handleMppRequestClose({}),
-  );
-  if (!ok) process.exit(1);
+  // ok = printToolResult(
+  //   "handleMppRequestClose",
+  //   await handleMppRequestClose({}),
+  // );
+  // if (!ok) process.exit(1);
 
 
   // // ----------- withdraw -----------

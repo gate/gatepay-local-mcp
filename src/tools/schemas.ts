@@ -144,14 +144,15 @@ export const MPP_INIT_SESSION_INPUT_SCHEMA = {
     sign_mode: {
       type: "string",
       description:
-        "Signing mode: local_private_key (EVM_PRIVATE_KEY); quick_wallet (hosted MCP, EIP-712 + Base on-chain contract via dex_wallet_sign_transaction).",
+        "Optional. If set, only this mode is used: local_private_key, quick_wallet, or plugin_wallet. " +
+        "If omitted, auto order: use local_private_key when EVM_PRIVATE_KEY/PRIVATE_KEY is set; " +
+        "else try quick_wallet, then plugin_wallet. Response includes loadStrategy and loadAttempts.",
       enum: ["local_private_key", "quick_wallet", "plugin_wallet"],
-      default: "local_private_key",
     },
     wallet_login_provider: {
       type: "string",
       description:
-        "When sign_mode is quick_wallet: device-flow OAuth provider (google / gate). Default gate.",
+        "When quick_wallet is used (explicit or auto): device-flow OAuth provider (google / gate). Default gate.",
       enum: ["google", "gate"],
     },
     decimals: {
@@ -163,8 +164,11 @@ export const MPP_INIT_SESSION_INPUT_SCHEMA = {
 };
 
 export const MPP_INIT_SESSION_DESCRIPTION =
-  "[Write] Initialize an MPP session (on-chain deposit / escrow channel): sign_mode is local_private_key or quick_wallet (EIP-712 + Base on-chain contract). " +
-  "Returns sessionId and init status; call before mpp_fetch. quick_wallet requires Quick Wallet MCP login; chain is driven by QUICK_WALLET_MPP_EVM_CHAIN (default BASE) and current MPP chainId.";
+  "[Write] Initialize an MPP session (on-chain deposit / escrow channel). " +
+  "If sign_mode is omitted, auto-select: local_private_key when EVM_PRIVATE_KEY is set, else quick_wallet, else plugin_wallet; response loadAttempts explains the outcome. " +
+  "If sign_mode is set, only that mode is loaded. " +
+  "Returns sessionId, signMode, loadStrategy, loadAttempts; call before mpp_fetch. " +
+  "quick_wallet: Quick Wallet MCP + QUICK_WALLET_MPP_EVM_CHAIN (default BASE). plugin_wallet: browser extension MCP.";
 
 // ============================================================================
 // mpp_fetch
