@@ -321,7 +321,7 @@ export interface BaseSessionManager {
 export function baseSession(params: BaseSessionParams): BaseSessionManager {
   const {
     account,
-    maxDeposit = '10',
+    maxDeposit = '1',
     decimals = 6,
     chainId = DEFAULT_CHAIN_ID,
     escrowContract,
@@ -340,6 +340,7 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
   const maxDepositWei = parseUnits(maxDeposit, decimals)
 
   let channel: ChannelEntry | undefined
+  /** 上一笔已成功 402 重试的 challenge（在 `fetch` 的 `notifyReceipt` 成功路径提交，供 `close()`） */
   let lastChallenge: Challenge.Challenge | undefined
   /** 与 mppx `sessionManager` 一致，供 `close()` 向同一资源提交 close 凭证 */
   let lastUrl: RequestInfo | URL | null = null
@@ -559,15 +560,28 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
 
       if (response.status !== 402) return response
 
+      /**
+       * 402 后重试：签名用将要达到的累计额，本地 `cumulativeAmount` / `lastChallenge` 仅在重试 `response.ok` 时提交
+       *（见下方 `if (response.ok)`）。`open` 仍在 `createOpenCredential` 内建 `channel`；仅延后 `lastChallenge`。
+       * `onChallenge` 若从不调用 `createCredential` 则不会登记 pending，成功时也不会自动提交。
+       */
+      let pendingPaymentCommit:
+        | { kind: 'voucher'; nextCumulative: bigint; challenge: Challenge.Challenge }
+        | { kind: 'open'; challenge: Challenge.Challenge }
+        | undefined
+
       const challenges = Challenge.fromResponseList(response)
       const challenge = pickSessionChallenge(challenges)
-      lastChallenge = challenge
 
       const createCredentialDefault = async (): Promise<string> => {
         const amount = BigInt(challenge.request.amount as string)
-        if (!channel?.opened) return createOpenCredential(challenge, amount)
-        channel.cumulativeAmount += amount
-        return createVoucherCredential(challenge, channel.cumulativeAmount)
+        if (!channel?.opened) {
+          pendingPaymentCommit = { kind: 'open', challenge }
+          return createOpenCredential(challenge, amount)
+        }
+        const nextCumulative = channel.cumulativeAmount + amount
+        pendingPaymentCommit = { kind: 'voucher', nextCumulative, challenge }
+        return createVoucherCredential(challenge, nextCumulative)
       }
 
       const credentialFromHook = onChallenge
@@ -585,6 +599,13 @@ export function baseSession(params: BaseSessionParams): BaseSessionManager {
         ...fetchInit,
         headers: retryHeaders,
       })
+      if (response.ok && pendingPaymentCommit) {
+        if (pendingPaymentCommit.kind === 'voucher' && channel) {
+          channel.cumulativeAmount = pendingPaymentCommit.nextCumulative
+        }
+        lastChallenge = pendingPaymentCommit.challenge
+      }
+      pendingPaymentCommit = undefined
       notifyReceipt(response)
       return response
     },

@@ -167,8 +167,7 @@ export const MPP_INIT_SESSION_DESCRIPTION =
   "[Write] Initialize an MPP session (on-chain deposit / escrow channel). " +
   "If sign_mode is omitted, auto-select: local_private_key when EVM_PRIVATE_KEY is set, else quick_wallet, else plugin_wallet; response loadAttempts explains the outcome. " +
   "If sign_mode is set, only that mode is loaded. " +
-  "Returns sessionId, signMode, loadStrategy, loadAttempts; call before mpp_fetch. " +
-  "quick_wallet: Quick Wallet MCP + QUICK_WALLET_MPP_EVM_CHAIN (default BASE). plugin_wallet: browser extension MCP.";
+  "Returns sessionId, signMode, loadStrategy, loadAttempts; call before mpp_fetch. " 
 
 // ============================================================================
 // mpp_fetch
@@ -200,7 +199,8 @@ export const MPP_FETCH_INPUT_SCHEMA = {
 
 export const MPP_FETCH_DESCRIPTION =
   "[Write] HTTP request to a merchant URL using the cached MPP client: handles 402 (WWW-Authenticate), builds credential, retries. " +
-  "First 402 establishes/confirms the on-chain escrow channel. Requires mpp_init_session first; use mpp_close_session for HTTP settlement.";
+  "First 402 establishes/confirms the on-chain escrow channel. Requires mpp_init_session first; use mpp_close_session for HTTP settlement. " +
+  "Do not call this tool concurrently for the same session—serialize calls (one in flight at a time) so channel state and vouchers stay consistent.";
 
 // ============================================================================
 // mpp_close_session
