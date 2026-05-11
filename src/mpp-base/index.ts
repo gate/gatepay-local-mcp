@@ -33,7 +33,7 @@ import {
 // 默认配置
 const DEFAULT_CHAIN_ID = 8453  // Base Mainnet
 const DEFAULT_ESCROW_CONTRACT: Record<number, Address> = {
-  8453: '0x00000000B4ecdF042B75e3afBf1810F323F82D09',
+  8453: '0x00000000D0F5126803af5515c1e3dF697e961389',
   84532: '0xabB719022DBDBb359dd0D2ad6abfc2EBd513bd15',
 }
 const DEFAULT_USDC: Record<number, Address> = {
