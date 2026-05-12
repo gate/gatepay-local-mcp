@@ -1,11 +1,12 @@
 # gatepay-local-mcp
 
-`gatepay-local-mcp` is a local `stdio` MCP server for calling **X402 payment-protected** HTTP endpoints. It provides a suite of MCP tools to handle the complete X402 payment workflow, from placing orders to signing payments and submitting them to merchants.
+`gatepay-local-mcp` is a local `stdio` MCP server for calling **X402** and **MPP (Base + USDC)** payment-protected HTTP endpoints. It exposes MCP tools for X402 (`PAYMENT-REQUIRED`), Gate Pay centralized settlement, and MPP session flows (`WWW-Authenticate`, on-chain escrow, HTTP close / optional chain withdraw).
 
 ## Features
 
-- **7 MCP Tools** covering order placement, signature flows, quick wallet / Gate Pay auth, and centralized payment retries
+- **12 MCP Tools**: X402 order + signature flows, Gate Pay centralized payment, and **MPP (Base + USDC)** session tools (`mpp_*`)
 - Built-in X402 payment flow under `src/x402/`
+- **MPP session flow** under `src/mpp-base/` + `mppx`: on-chain escrow channel, `402` / `WWW-Authenticate` handling, HTTP settlement, and optional on-chain `requestClose` / `withdraw`
 - **Multiple signing modes**: `local_private_key`, `quick_wallet`, `plugin_wallet`
 - **Multi-chain support**: EVM (Ethereum, Base, Polygon, etc.) and Solana
 - Works with Cursor, Claude Desktop, and other MCP clients
@@ -18,7 +19,7 @@
 
 Send an HTTP request and return complete response information including headers, body, and the original request details.
 
-**Use case**: Initial request to a payment-protected endpoint that returns `402 Payment Required`.
+**Use case**: Probe a URL that may return `402 Payment Required` — detect whether the merchant uses **X402** (`PAYMENT-REQUIRED`) or **MPP** (`WWW-Authenticate`) before choosing tools.
 
 **Parameters**:
 ```typescript
@@ -31,7 +32,10 @@ Send an HTTP request and return complete response information including headers,
 }
 ```
 
-**Returns**: Complete response with status code, headers (including `PAYMENT-REQUIRED`), body, and original request details.
+**Returns**: Complete response with status code, headers, body, original request details, and **`paymentType`** when detectable:
+
+- **`x402`**: response includes a `PAYMENT-REQUIRED` header — use the X402 tools below (`x402_sign_payment`, or split create/submit).
+- **`mpp`**: response includes `WWW-Authenticate` — **do not** use X402 signing tools; run **`mpp_init_session`** then **`mpp_fetch`** (see MPP sections).
 
 ---
 
@@ -147,6 +151,112 @@ Parse the Base64-encoded `PAYMENT-REQUIRED` header and complete the Gate Pay cen
 
 ---
 
+## MPP tools (Base + USDC session)
+
+MPP (multi-party payment over an on-chain escrow channel) is separate from X402’s `PAYMENT-REQUIRED` header flow. The server caches one **session per EVM address** after `mpp_init_session`. Signing modes are the same three as X402 for EVM operations: `local_private_key`, `quick_wallet`, `plugin_wallet` (with `quick_wallet` / `plugin_wallet` needing `signTransaction` for on-chain channel steps).
+
+**Important**
+
+- Serialize **`mpp_fetch`** calls for a given session (one in flight at a time) so vouchers and channel state stay consistent.
+- **`mpp_close_session`** (HTTP): merchant billing + `Payment-Receipt`, then clears the local cache.
+- **`mpp_request_close`** / **`mpp_withdraw`**: **on-chain only**; they do not replace HTTP close. After `mpp_request_close`, wait for the contract-defined period before `mpp_withdraw`.
+
+---
+
+### 8. `mpp_init_session`
+
+Initialize the cached MPP session manager (max deposit, signer selection). Call this **before** any `mpp_fetch`.
+
+**Use case**: First step for merchants that return `402` with `WWW-Authenticate` (MPP challenges).
+
+**Parameters**:
+```typescript
+{
+  max_deposit?: string;     // Human-readable max deposit, e.g. "10" (default "1")
+  sign_mode?: "local_private_key" | "quick_wallet" | "plugin_wallet"; // omit = auto: local → quick → plugin
+  wallet_login_provider?: "google" | "gate"; // when quick_wallet is used (default: gate)
+  decimals?: number;        // Token decimals (default 6)
+}
+```
+
+**Returns**: `sessionId`, effective `signMode`, `loadStrategy`, `loadAttempts` (explains auto-selection when `sign_mode` was omitted).
+
+---
+
+### 9. `mpp_fetch`
+
+Perform an HTTP request through the cached MPP client: handles `402` / `WWW-Authenticate`, builds credentials, retries after payment negotiation.
+
+**Use case**: Call the merchant URL after `mpp_init_session`. The first successful `402` flow establishes or confirms the on-chain escrow **channel**.
+
+**Parameters**:
+```typescript
+{
+  url: string;              // Full http/https resource URL (required)
+  method?: "GET" | "POST" | "PUT" | "PATCH"; // default POST
+  body?: string;            // JSON string body (optional)
+  headers?: string;         // Extra headers as JSON object string (optional)
+}
+```
+
+**Returns**: HTTP result from the merchant after MPP negotiation (and receipt metadata when present).
+
+---
+
+### 10. `mpp_close_session`
+
+HTTP-side settlement: sign a **close** credential, `POST` to the **same resource URL last used by `mpp_fetch`**, parse `Payment-Receipt`, then clear the local session.
+
+**Use case**: Normal end-of-session cleanup when the merchant should finalize billing and you want to drop the local MPP cache.
+
+**Parameters**:
+```typescript
+{
+  account_address?: string; // Optional EVM address; if omitted, closes one active cached session
+}
+```
+
+**Returns**: Close / receipt outcome; local session cleared for that account.
+
+---
+
+### 11. `mpp_request_close`
+
+On-chain only: call the escrow contract’s **`requestClose(channelId)`** to start closing the channel on Base.
+
+**Use case**: Begin on-chain closure after you no longer need paid fetches; does **not** call the merchant, does **not** return `Payment-Receipt`, does **not** clear the local session.
+
+**Parameters**:
+```typescript
+{
+  account_address?: string; // Optional EVM address for the cached session
+  rpc_url?: string;         // Optional JSON-RPC override (else `MPP_BASE_RPC_URL` / `BASE_RPC_URL` or built-in defaults)
+}
+```
+
+**Returns**: Transaction / chain result for `requestClose`.
+
+---
+
+### 12. `mpp_withdraw`
+
+On-chain only: call **`withdraw(channelId)`** after `mpp_request_close` **and** the contract wait period — recovers remaining escrowed funds.
+
+**Use case**: Recover on-chain balance after the channel is closable; too early and the contract reverts.
+
+**Parameters**:
+```typescript
+{
+  account_address?: string; // Optional EVM address
+  channel_id?: string;      // Optional 0x + 64 hex; omit if channel is still in local cache after paid fetches
+  rpc_url?: string;         // Optional JSON-RPC override
+}
+```
+
+**Returns**: Transaction / chain result for `withdraw`.
+
+---
+
 ## Workflow Examples
 
 ### Single-Step Workflow (Recommended)
@@ -180,6 +290,23 @@ Parse the Base64-encoded `PAYMENT-REQUIRED` header and complete the Gate Pay cen
 3. x402_submit_payment      → Use payment_signature + sign_mode: "centralized_payment" to call the merchant with Authorization: Bearer
    或
 3. x402_centralized_payment → payment_required_header + resource_url (full http/https); pays then retries merchant with X-GatePay-Centralized-Merchant-No
+```
+
+### MPP (WWW-Authenticate / Base escrow)
+
+```
+1. x402_place_order          → If paymentType is mpp, note WWW-Authenticate / 402 body
+2. mpp_init_session          → Cache session + signer (local_private_key, quick_wallet, or plugin_wallet)
+3. mpp_fetch                 → Same merchant URL/method/body; handles 402 + channel (serialize calls)
+4. mpp_close_session         → HTTP settlement + Payment-Receipt; clears local session
+```
+
+Optional on-chain teardown (after you are done with HTTP billing and understand contract timing):
+
+```
+5. mpp_request_close         → Escrow requestClose on-chain (session cache unchanged)
+6. (wait for contract period)
+7. mpp_withdraw              → On-chain withdraw of remaining deposit
 ```
 
 ## Signing Modes
@@ -342,6 +469,21 @@ The server loads `.env` from the repository or package root at startup.
 | `QUICK_WALLET_API_KEY`    | `quick_wallet`      | API key for MCP wallet service (optional)                                   |
 | `PLUGIN_WALLET_TOKEN`     | `plugin_wallet`     | MCP token from browser extension wallet                                     |
 
+### MPP (Base session)
+
+| Variable                     | Description                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `MPP_BASE_CHAIN_ID`          | Base chain id for the MPP session (overrides `BASE_CHAIN_ID` and `GATE_PAY_ENV` preset) |
+| `BASE_CHAIN_ID`              | Fallback chain id when `MPP_BASE_CHAIN_ID` is unset                         |
+| `GATE_PAY_ENV`               | Preset when neither chain id is set: `test` → Base Sepolia `84532`, else Base mainnet `8453` |
+| `MPP_BASE_ESCROW_CONTRACT`   | Override escrow contract address (else `BASE_ESCROW_CONTRACT` or mpp-base default) |
+| `BASE_ESCROW_CONTRACT`       | Alternate env name for escrow contract override                             |
+| `MPP_BASE_RPC_URL`           | JSON-RPC URL for Base on-chain writes (`requestClose` / `withdraw`, channel reads) |
+| `BASE_RPC_URL`               | Fallback RPC URL when `MPP_BASE_RPC_URL` is unset                         |
+| `QUICK_WALLET_MPP_EVM_CHAIN` | Gate MCP chain label for Quick Wallet tx signing (default `BASE`) when using `quick_wallet` with MPP |
+
+`local_private_key` for MPP requires **`EVM_PRIVATE_KEY`** (or **`PRIVATE_KEY`**) for Base signing. `quick_wallet` / `plugin_wallet` must expose the signing APIs required for typed data and contract calls (see server errors if misconfigured).
+
 ### Gate Pay Centralized Payment
 
 | Variable                          | Description                                                                                   |
@@ -366,6 +508,9 @@ The server loads `.env` from the repository or package root at startup.
 | `RESOURCE_SERVER_URL`         | `test/privateKey.test.ts`       | `http://localhost:8080` | Base URL for the local private-key flow test    |
 | `ENDPOINT_PATH`               | `test/privateKey.test.ts`       | `/flight/order`         | Endpoint path appended to `RESOURCE_SERVER_URL` |
 | `GATEPAY_MCP_TEST_TIMEOUT_MS` | `test/mcp-x402-request-tool.ts` | `180000`                | Timeout for the MCP tool integration test       |
+| `MPP_SESSION_TEST_URL`        | `test/mpp-session.manual.ts`    | `http://localhost:8080/api/image/generate` | Full URL for MPP manual init/fetch/close script |
+| `MPP_SESSION_TEST_BODY`       | `test/mpp-session.manual.ts`    | `{"prompt":"mpp-session-manual-test"}`       | POST body JSON string for the MPP manual script |
+| `MPP_SESSION_TEST_REQUEST_CLOSE` | `test/mpp-session.manual.ts` | unset                   | Set to `1` to run on-chain `mpp_request_close` before HTTP close in the manual script |
 
 ## Usage Examples
 
@@ -458,9 +603,45 @@ The server loads `.env` from the repository or package root at startup.
 }
 ```
 
+### Example 5: MPP session (place order → init → fetch → close)
+
+```json
+// Step 0: Discover payment type (mpp → WWW-Authenticate)
+{
+  "tool": "x402_place_order",
+  "arguments": {
+    "url": "https://api.example.com/mpp/resource",
+    "method": "POST",
+    "body": "{\"prompt\":\"hello\"}"
+  }
+}
+
+// Step 1: Init session (after confirming paymentType is mpp)
+{
+  "tool": "mpp_init_session",
+  "arguments": {
+    "max_deposit": "5",
+    "sign_mode": "local_private_key"
+  }
+}
+
+// Step 2: Paid fetch (run fetches one at a time for this session)
+{
+  "tool": "mpp_fetch",
+  "arguments": {
+    "url": "https://api.example.com/mpp/resource",
+    "method": "POST",
+    "body": "{\"prompt\":\"hello\"}"
+  }
+}
+
+// Step 3: HTTP close + receipt + clear cache
+{ "tool": "mpp_close_session", "arguments": {} }
+```
+
 ## Agent Skill
 
-- `skills/SKILL.md` contains the `gatepay-x402` skill manifest and prompts so MCP-aware IDEs (Cursor, Claude Desktop, Codex CLI, etc.) know how to call every tool exposed by this server.
+- `skills/SKILL.md` contains the `gatepay-x402` skill manifest and prompts so MCP-aware IDEs (Cursor, Claude Desktop, Codex CLI, etc.) know how to call every tool exposed by this server (including `mpp_*` when present in your build).
 - `skills/gatepay-x402.md` (mirrored at `docs/gatepay-x402.md`) is a natural-language installation guide. Share that link with your AI host for a “one-click” experience: the host can follow the steps to download `gatepay-local-mcp`, register it in `mcpServers`, and copy the `gatepay-x402` skill into its skills directory automatically.
 
 Tool names and arguments always match each tool’s MCP `inputSchema` on the server you connect to; check your client’s tool list if you ship a trimmed build.
@@ -485,6 +666,9 @@ npm run test:unit
 
 # run the local private key flow test
 npm run test:privateKey
+
+# MPP session manual (init → fetch ×3 → close; optional on-chain steps via env)
+npm run test:mpp-session
 
 # MCP / x402 集成探针（需 build 后 dist）
 npm run test:split-tools
