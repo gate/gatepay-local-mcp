@@ -6,7 +6,7 @@
  * - x402_submit_payment (只支付)
  * 
  * 运行方式:
- *   pnpm run build && pnpm run test:split-tools-v2
+ *   npm run build && npm run test:split-tools
  * 
  * 需要环境变量：
  *   - EVM_PRIVATE_KEY 或 QUICK_WALLET_API_KEY
