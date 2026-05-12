@@ -58,10 +58,10 @@ export type ClientEvmSigner = {
     primaryType: string;
     message: Record<string, unknown>;
   }): Promise<`0x${string}`>;
-  signDigest?(digest: `0x${string}`, intent?: string): Promise<`0x${string}`>;
   /** 托管钱包 MPP / Base 链上写合约时由 createQuickWalletSigner 填充 */
   signMessage?(args: { message: SignableMessage }): Promise<Hex>;
   signTransaction?(transaction: unknown, options?: unknown): Promise<Hex>;
+  signDigest?(digest: `0x${string}`): Promise<`0x${string}`>;
 };
 
 export type ClientSvmSigner = TransactionSigner;
