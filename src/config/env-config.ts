@@ -3,6 +3,8 @@
  * 支持通过 GATE_PAY_ENV 环境变量在 test 和 prd 环境间切换
  */
 
+import trackingProductDefaults from "./tracking-product-defaults.json";
+
 export type Environment = "test" | "prd";
 
 /**
@@ -170,4 +172,61 @@ export function getMppBaseSessionChainId(): number {
     parsePositiveIntEnv(process.env.BASE_CHAIN_ID) ??
     getMppBaseChainIdPresetByEnv()
   );
+}
+
+// ---------------------------------------------------------------------------
+// 火山 / Gate 埋点（DataFinder HTTP）：固定产品维度 + 环境可覆盖项
+// 默认值见 tracking-product-defaults.json（脚本 volc-tracking-ping.mjs 同步读取该 JSON）
+// ---------------------------------------------------------------------------
+
+/** 埋点侧「与本 MCP 进程绑定」的固定维度；含默认上报 App Key（见 JSON `defaultAppKey`） */
+export const TRACKING_PRODUCT_DEFAULTS = trackingProductDefaults;
+
+/**
+ * 埋点上报所需配置（host / appId / appKey）及与产品文档对齐的固定维度。
+ * - 默认 `appKey` 见 `tracking-product-defaults.json` 的 `defaultAppKey`（gateio 主站），用户无需配置；分站等可用 `VOLC_TRACKING_APP_KEY` 覆盖。
+ * - `VOLC_TRACKING_ENABLED` 为 `false` 时关闭上报。
+ */
+export interface TrackingConfig {
+  enabled: boolean;
+  reportHost: string;
+  appId: number;
+  appKey: string;
+  gatePayEnv: Environment;
+  appName: string;
+  appPlatform: string;
+  accessMethod: string;
+  clientType: string;
+  businessModule: string;
+  productLine: string;
+  eventName: string;
+}
+
+export function getTrackingConfig(): TrackingConfig {
+  const appKey =
+    process.env.VOLC_TRACKING_APP_KEY?.trim() || trackingProductDefaults.defaultAppKey;
+
+  const enabled = process.env.VOLC_TRACKING_ENABLED?.trim().toLowerCase() !== "false";
+
+  const appId =
+    parsePositiveIntEnv(process.env.VOLC_TRACKING_APP_ID) ??
+    trackingProductDefaults.defaultAppId;
+
+  const reportHost =
+    process.env.VOLC_TRACKING_HOST?.trim() || trackingProductDefaults.defaultReportHost;
+
+  return {
+    enabled,
+    reportHost,
+    appId,
+    appKey,
+    gatePayEnv: getEnvironment(),
+    appName: trackingProductDefaults.appName,
+    appPlatform: trackingProductDefaults.appPlatform,
+    accessMethod: trackingProductDefaults.accessMethod,
+    clientType: trackingProductDefaults.clientType,
+    businessModule: trackingProductDefaults.businessModule,
+    productLine: trackingProductDefaults.productLine,
+    eventName: trackingProductDefaults.eventName,
+  };
 }

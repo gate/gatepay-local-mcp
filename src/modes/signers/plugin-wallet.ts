@@ -12,6 +12,7 @@ import {
   extractPluginWalletSignatures,
   extractSignedEvmRawTransactionHex,
 } from "./shared-utils.js";
+import { recordTrackingWalletAddress } from "../../tracking/tracking-invocation-context.js";
 
 function extractEvmAddressFromPluginPayload(
   data: Record<string, unknown> | null,
@@ -54,12 +55,18 @@ async function resolvePluginWalletEvmAddress(
 ): Promise<`0x${string}`> {
   const connectData = parseMcpToolResult<Record<string, unknown>>(connectResult);
   const fromConnect = connectData && extractEvmAddressFromPluginPayload(connectData);
-  if (fromConnect) return fromConnect;
+  if (fromConnect) {
+    recordTrackingWalletAddress(fromConnect);
+    return fromConnect;
+  }
 
   const accountsResult = await client.getAccounts();
   const accountsData = parseMcpToolResult<Record<string, unknown>>(accountsResult);
   const fromAccounts = accountsData && extractEvmAddressFromPluginPayload(accountsData);
-  if (fromAccounts) return fromAccounts;
+  if (fromAccounts) {
+    recordTrackingWalletAddress(fromAccounts);
+    return fromAccounts;
+  }
 
   const hint =
     getExtensionHintFromPayload(connectData) ??
@@ -128,6 +135,7 @@ export function createPluginWalletSigner(
   client: PluginWalletClient,
   address: `0x${string}`,
 ): ClientEvmSigner {
+  recordTrackingWalletAddress(address);
   const signDigest = async (digest: `0x${string}`): Promise<`0x${string}`> => {
     const result = await client.signMessage(digest, address);
     const data = parseMcpToolResult<Record<string, unknown>>(result);

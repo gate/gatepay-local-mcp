@@ -1,0 +1,22 @@
+{
+  "feature_name": "volc-tracking",
+  "created_at": "2026-05-19T13:36:00+08:00",
+  "updated_at": "2026-05-19T13:36:00+08:00",
+  "language": "zh",
+  "phase": "design_generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false
+}

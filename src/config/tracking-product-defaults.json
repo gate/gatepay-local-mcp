@@ -1,0 +1,12 @@
+{
+  "defaultReportHost": "snssdk.gatedata.org",
+  "defaultAppId": 10000001,
+  "defaultAppKey": "dd447b6237008363f06bd97bbd4a27e0",
+  "appName": "gatepay_local_mcp",
+  "appPlatform": "server",
+  "accessMethod": "MCP",
+  "clientType": "gatepay-local-mcp",
+  "businessModule": "Pay",
+  "productLine": "LOCAL MCP",
+  "eventName": "mcp_tool_call"
+}

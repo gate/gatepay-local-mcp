@@ -8,6 +8,10 @@ import {
   gateOAuthConfigFromEnv,
 } from "./gate-oauth-config.js";
 import { GateOAuth } from "./gate-oauth-class.js";
+import {
+  recordTrackingGateUid,
+  clearTrackingGateUidSticky,
+} from "../tracking/tracking-invocation-context.js";
 
 const EXPIRY_SKEW_MS = 60_000;
 /** 接口未返回 access 过期时间时，自签发起默认有效时长 */
@@ -45,6 +49,11 @@ export function setGatePayAccessToken(
   }
   if (userId !== undefined) {
     gatePayUserId = userId.length > 0 ? userId : null;
+    if (userId.length > 0) {
+      recordTrackingGateUid(userId);
+    } else {
+      clearTrackingGateUidSticky();
+    }
   }
 }
 
@@ -162,4 +171,5 @@ export function clearGatePayAccessToken(): void {
   gatePayRefreshTokenExpiresAtMs = null;
   gatePayTokenExpiresAtMs = null;
   gatePayTokenIssuedAtMs = null;
+  clearTrackingGateUidSticky();
 }

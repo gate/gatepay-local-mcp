@@ -6,6 +6,7 @@ import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { base58 } from "@scure/base";
 import type { ClientEvmSigner, ClientSvmSigner } from "../../x402/types.js";
 import { toHexFromBytes } from "./shared-utils.js";
+import { recordTrackingWalletAddress } from "../../tracking/tracking-invocation-context.js";
 
 type NobleSig = { toCompactRawBytes(): Uint8Array; recovery?: number };
 
@@ -37,6 +38,7 @@ async function signDigestWithPrivateKey(
 export function createLocalPrivateKeySigner(privateKey: Hex): ClientEvmSigner {
   const key = (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as Hex;
   const account = privateKeyToAccount(key as `0x${string}`);
+  recordTrackingWalletAddress(account.address);
   return {
     address: account.address,
     signTypedData: (msg) => account.signTypedData(msg),

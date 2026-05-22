@@ -1,0 +1,15 @@
+{
+  "x402_place_order": "x402 下单探测（无自动签名）",
+  "x402_sign_payment": "x402 签名并支付",
+  "mpp_init_session": "MPP 初始化会话",
+  "mpp_fetch": "MPP 发起 HTTP 请求",
+  "mpp_close_session": "MPP 关闭会话",
+  "mpp_request_close": "MPP 链上请求关闭通道",
+  "mpp_withdraw": "MPP 链上提现",
+  "x402_create_signature": "x402 创建支付签名",
+  "x402_submit_payment": "x402 提交支付",
+  "x402_gate_pay_auth": "Gate Pay 授权登录",
+  "x402_quick_wallet_auth": "快捷钱包授权登录",
+  "x402_centralized_payment": "Gate Pay 中心化支付",
+  "x402_request": "x402 一站式请求（兼容旧版）"
+}

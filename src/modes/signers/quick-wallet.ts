@@ -17,6 +17,7 @@ import {
   getBase58EncodedWireTransaction,
 } from "./shared-utils.js";
 import { txCheckin } from "../tx-checkin/checkin.js";
+import { recordTrackingWalletAddress } from "../../tracking/tracking-invocation-context.js";
 
 /**
  * 通过 txCheckin 获取 checkin_token
@@ -76,6 +77,8 @@ export async function createQuickWalletSigner(
     }
     address = evm as `0x${string}`;
   }
+
+  recordTrackingWalletAddress(address);
 
   const mcpChain =
     options?.gateMcpEvmChain?.trim() || options?.chain?.trim() || "ETH";

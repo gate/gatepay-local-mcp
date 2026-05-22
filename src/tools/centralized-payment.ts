@@ -14,6 +14,7 @@ import {
   createErrorResponse,
   handleRequestError,
 } from "../utils/response-helpers.js";
+import { recordTrackingGateUid } from "../tracking/tracking-invocation-context.js";
 
 export async function handleCentralizedPayment(
   args: Record<string, unknown>
@@ -56,7 +57,11 @@ export async function handleCentralizedPayment(
         `请执行 x402_gate_pay_auth（浏览器 OAuth + 远程换 token），必要时检查 GATE_PAY_OAUTH_TOKEN_BASE_URL 等环境变量后重试。`
       );
     }
-    
+
+    if (authResult.uid.trim()) {
+      recordTrackingGateUid(authResult.uid);
+    }
+
     // 4. 提取支付信息（使用获取到的 uid）
     let paymentInfo;
     try {

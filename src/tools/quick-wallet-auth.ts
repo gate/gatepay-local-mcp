@@ -5,6 +5,7 @@ import {
   runQuickWalletDeviceAuthIfNeeded,
 } from "../modes/quick-wallet.js";
 import { createErrorResponse, createSuccessResponse } from "../utils/response-helpers.js";
+import { recordTrackingWalletFromQuickAddressesPayload } from "../tracking/tracking-invocation-context.js";
 
 export async function handleQuickWalletAuth(
   args: Record<string, unknown>,
@@ -28,6 +29,7 @@ export async function handleQuickWalletAuth(
     );
 
     const addresses = await getQuickWalletAddressPayload(mcp);
+    recordTrackingWalletFromQuickAddressesPayload(addresses);
 
     if (phase === "login_succeeded") {
       return createSuccessResponse(

@@ -29,6 +29,7 @@ import {
   createSuccessResponse,
   handleRequestError,
 } from "../utils/response-helpers.js";
+import { recordTrackingWalletAddress } from "../tracking/tracking-invocation-context.js";
 import { base, baseSepolia } from "viem/chains";
 
 /** 供 baseSession / viem writeContract 使用的账户（本地私钥或托管 toAccount）。 */
@@ -290,6 +291,7 @@ export async function handleMppInitSession(args: Record<string, unknown>): Promi
       walletLoginProvider
     );
     const accountAddress = account.address.toLowerCase();
+    recordTrackingWalletAddress(account.address);
 
     // 检查是否已有该账户的 session
     const existing = getMppSession(accountAddress);
@@ -451,6 +453,8 @@ export async function handleMppFetch(args: Record<string, unknown>): Promise<Cal
     const channelId = (meta.manager as unknown as { channelId?: string }).channelId;
     const cumulative = (meta.manager as unknown as { cumulative?: bigint }).cumulative;
 
+    recordTrackingWalletAddress(meta.accountAddress);
+
     return createSuccessResponse(
       JSON.stringify(
         {
@@ -517,6 +521,8 @@ export async function handleMppRequestClose(
     const rpcUrl = rpcArg || resolveMppBaseRpcUrl(chainId);
 
     const { txHash } = await requestCloseOnChain({ rpcUrl });
+
+    recordTrackingWalletAddress(meta.accountAddress);
 
     return createSuccessResponse(
       JSON.stringify(
@@ -597,6 +603,8 @@ export async function handleMppWithdraw(args: Record<string, unknown>): Promise<
 
     const effectiveChannelId = channelIdArg ?? meta.manager.channelId;
 
+    recordTrackingWalletAddress(meta.accountAddress);
+
     return createSuccessResponse(
       JSON.stringify(
         {
@@ -666,6 +674,8 @@ export async function handleMppCloseSession(args: Record<string, unknown>): Prom
 
     // 清理该账户的 session
     clearMppSession(targetAddress);
+
+    recordTrackingWalletAddress(targetAddress);
 
     return createSuccessResponse(
       JSON.stringify(

@@ -34,6 +34,8 @@ import {
   handleX402Request,
   handleCentralizedPayment,
 } from "./tools/index.js";
+import { withTracking } from "./tracking/with-tracking.js";
+import { getTracker } from "./tracking/tracker.js";
 import { createErrorResponse } from "./utils/response-helpers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -81,65 +83,69 @@ async function main(): Promise<void> {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    return await withTracking(name, args, async () => {
+      if (name === "x402_place_order") {
+        return await handlePlaceOrder(args ?? {});
+      }
 
-    if (name === "x402_place_order") {
-      return await handlePlaceOrder(args ?? {});
-    }
+      if (name === "x402_sign_payment") {
+        return await handleSignPayment(args ?? {}, signModeRegistry);
+      }
 
-    if (name === "x402_sign_payment") {
-      return await handleSignPayment(args ?? {}, signModeRegistry);
-    }
+      if (name === "mpp_init_session") {
+        return await handleMppInitSession(args ?? {});
+      }
 
-    if (name === "mpp_init_session") {
-      return await handleMppInitSession(args ?? {});
-    }
+      if (name === "mpp_fetch") {
+        return await handleMppFetch(args ?? {});
+      }
 
-    if (name === "mpp_fetch") {
-      return await handleMppFetch(args ?? {});
-    }
+      if (name === "mpp_close_session") {
+        return await handleMppCloseSession(args ?? {});
+      }
 
-    if (name === "mpp_close_session") {
-      return await handleMppCloseSession(args ?? {});
-    }
+      if (name === "mpp_request_close") {
+        return await handleMppRequestClose(args ?? {});
+      }
 
-    if (name === "mpp_request_close") {
-      return await handleMppRequestClose(args ?? {});
-    }
+      if (name === "mpp_withdraw") {
+        return await handleMppWithdraw(args ?? {});
+      }
 
-    if (name === "mpp_withdraw") {
-      return await handleMppWithdraw(args ?? {});
-    }
+      if (name === "x402_create_signature") {
+        return await handleCreateSignature(args ?? {}, signModeRegistry);
+      }
 
-    if (name === "x402_create_signature") {
-      return await handleCreateSignature(args ?? {}, signModeRegistry);
-    }
+      if (name === "x402_submit_payment") {
+        return await handleSubmitPayment(args ?? {});
+      }
 
-    if (name === "x402_submit_payment") {
-      return await handleSubmitPayment(args ?? {});
-    }
+      if (name === "x402_gate_pay_auth") {
+        return await handleGatePayAuth();
+      }
 
-    if (name === "x402_gate_pay_auth") {
-      return await handleGatePayAuth();
-    }
+      if (name === "x402_quick_wallet_auth") {
+        return await handleQuickWalletAuth(args ?? {}, {
+          mcpWalletUrl: quickWalletMcpUrl,
+          mcpApiKey: quickWalletApiKey,
+        });
+      }
 
-    if (name === "x402_quick_wallet_auth") {
-      return await handleQuickWalletAuth(args ?? {}, {
-        mcpWalletUrl: quickWalletMcpUrl,
-        mcpApiKey: quickWalletApiKey,
-      });
-    }
+      if (name === "x402_centralized_payment") {
+        return await handleCentralizedPayment(args ?? {});
+      }
 
-    if (name === "x402_centralized_payment") {
-      return await handleCentralizedPayment(args ?? {});
-    }
+      // Keep x402_request handler for backward compatibility (not exposed in ListTools)
+      if (name === "x402_request") {
+        return await handleX402Request(args ?? {}, signModeRegistry);
+      }
 
-    // Keep x402_request handler for backward compatibility (not exposed in ListTools)
-    if (name === "x402_request") {
-      return await handleX402Request(args ?? {}, signModeRegistry);
-    }
-
-    return createErrorResponse(`未知工具: ${name}`);
+      return createErrorResponse(`未知工具: ${name}`);
+    });
   });
+
+  // 初始化埋点上报（注册退出钩子 + 定时器）
+  getTracker();
 
   const stdio = new StdioServerTransport();
   await server.connect(stdio);

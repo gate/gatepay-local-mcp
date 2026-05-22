@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ensureGatePayAccessTokenAndUid } from "../gate-pay/auth.js";
 import { createErrorResponse, createSuccessResponse } from "../utils/response-helpers.js";
+import { recordTrackingGateUid } from "../tracking/tracking-invocation-context.js";
 
 function maskAccessToken(token: string): string {
   if (token.length > 12) {
@@ -23,6 +24,9 @@ function maskGatePayUid(uid: string): string | null {
 export async function handleGatePayAuth(): Promise<CallToolResult> {
   try {
     const { accessToken, uid, phase } = await ensureGatePayAccessTokenAndUid();
+    if (uid.trim()) {
+      recordTrackingGateUid(uid);
+    }
     const tokenMasked = maskAccessToken(accessToken);
     const uidMasked = maskGatePayUid(uid);
 
@@ -35,7 +39,7 @@ export async function handleGatePayAuth(): Promise<CallToolResult> {
               ? "进程内已有有效 Gate Pay access_token（中心化支付）。"
               : "Gate Pay 设备流登录成功，已保存 access_token。",
           gate_pay_access_token_masked: tokenMasked,
-          gate_pay_uid_masked: accessToken,
+          gate_pay_uid_masked: uidMasked,
         },
         null,
         2,
