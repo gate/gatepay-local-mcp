@@ -1,6 +1,6 @@
 {
-  "name": "gatepay-local-mcp",
-  "version": "1.0.11",
+  "name": "@andesmountain/gatepay-local-mcp",
+  "version": "1.1.0",
   "description": "Gatepay Local (stdio) MCP server",
   "type": "module",
   "main": "dist/src/index.js",
@@ -18,6 +18,7 @@
     "dev": "tsx src/index.ts",
     "test:unit": "node --import tsx --test test/centralized-payment.test.ts",
     "test:privateKey": "tsx test/privateKey.test.ts",
+    "test:centralized-payment-flow": "tsx test/centralized-payment-flow.test.ts",
     "test:getTools": "tsx test/getTools.test.ts",
     "test:pluginWallet": "tsx test/pluginWallet.test.ts",
     "test:quickWallet": "tsx test/quickWallet.test.ts",
