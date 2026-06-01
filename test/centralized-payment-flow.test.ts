@@ -23,7 +23,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 config({ path: join(packageRoot, ".env") });
 
-const baseURL = process.env.RESOURCE_SERVER_URL || "http://dev.halftrust.xyz/pay-merchant-demo";
+const baseURL = process.env.RESOURCE_SERVER_URL || "http://localhost:8080";
 const endpointPath = process.env.ENDPOINT_PATH || "/flight/order";
 const defaultBody =
   '{"flightId": "FL002","uid": "100","chain":"BASEEVM","fullCurrType":"USDC_BASEEVM"}';
