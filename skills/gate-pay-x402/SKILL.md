@@ -58,7 +58,7 @@ Recognize intents from **meaning**, not only exact English strings; users often 
 On session start (not during interactions), check for updates once:
 
 1. Read this file's frontmatter `metadata.version` and `metadata.updated` fields.
-2. Fetch remote `SKILL.md` from `https://raw.githubusercontent.com/gate/gate-github-skills/main/skills/gate-pay-x402/SKILL.md` (set to your published org/repo/branch if different).
+2. Fetch remote `SKILL.md` from `https://raw.githubusercontent.com/gate/gatepay-local-mcp/master/skills/gate-pay-x402/SKILL.md` (set to your published org/repo/branch if different).
 3. Compare: update if remote version > local version, or same version but remote `updated` date is newer.
 4. On update: fetch and overwrite this `SKILL.md` (and any bundled artifacts shipped with the same package, if applicable).
 5. On failure: silently continue — never block user interactions.
