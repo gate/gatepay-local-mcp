@@ -15,7 +15,7 @@ Built by **Gate**. Built for the **crypto community**.
 
 This guide installs the **[gatepay-local-mcp](https://github.com/gate/gatepay-local-mcp)** MCP server and the **gate-pay-x402** skill. It applies to common agent hosts including **Cursor**, **OpenClaw**, and **Claude Code**. Use the quick prompt below with your **AI agent**, or follow the manual steps.
 
-**This document in the repo:** `docs/gatepay-x402.md`
+**This document in the repo:** `skills/gate-pay-x402-setup/SKILL.md`
 
 ---
 
@@ -26,12 +26,8 @@ This guide installs the **[gatepay-local-mcp](https://github.com/gate/gatepay-lo
 | **MCP server** `gatepay-local-mcp` | Runs as `npx -y gatepay-local-mcp` and handles x402 payment flows. See the [package README](https://github.com/gate/gatepay-local-mcp/blob/master/Readme.md). |
 | **Skill `gate-pay-x402`** | Guides your AI agent on wallet setup, payment routing, and calling Gate Pay MCP tools using each tool’s `inputSchema`. |
 
-**Skill source in the repository:** [skills/SKILL.md](https://github.com/gate/gatepay-local-mcp/blob/master/skills/SKILL.md)  
-**Raw file (for download / copy):** `https://raw.githubusercontent.com/gate/gatepay-local-mcp/master/skills/SKILL.md`
-
-If your fork uses `skills/gatepay-x402/SKILL.md`, use:
-
-`https://raw.githubusercontent.com/gate/gatepay-local-mcp/master/skills/gatepay-x402/SKILL.md`
+**Skill source in the repository:** [skills/gate-pay-x402/SKILL.md](https://github.com/gate/gatepay-local-mcp/blob/master/skills/gate-pay-x402/SKILL.md)  
+**Raw file (for download / copy):** `https://raw.githubusercontent.com/gate/gatepay-local-mcp/master/skills/gate-pay-x402/SKILL.md`
 
 ### Why `gate-pay-x402/SKILL.md`?
 
@@ -52,7 +48,7 @@ Agent hosts (Cursor, Claude Code, OpenClaw, Codex, and similar) load skills from
 Use the **same** one-line style for any host. Replace the URL if your **branch** or fork differs (`master` shown).
 
 > **Help me install Gate Pay MCP and the gate-pay-x402 skill:**  
-> `https://github.com/gate/gatepay-local-mcp/blob/master/docs/gatepay-x402.md`
+> `https://github.com/gate/gatepay-local-mcp/blob/master/skills/gate-pay-x402-setup/SKILL.md`
 
 Your **AI agent** should open that guide and apply the steps for your host. Then **reload MCP** or **restart the app** as required.
 
@@ -127,7 +123,7 @@ If a version appears (e.g. `11.8.0`), you are set. Otherwise see [Appendix: Inst
 
 Ask your **AI agent** to follow:
 
-`https://github.com/gate/gatepay-local-mcp/blob/master/docs/gatepay-x402.md`
+`https://github.com/gate/gatepay-local-mcp/blob/master/skills/gate-pay-x402-setup/SKILL.md`
 
 It should fetch the **raw** skill file and write **`gate-pay-x402/SKILL.md`** in the correct skills root for your host.
 
@@ -146,7 +142,7 @@ Create **`gate-pay-x402/SKILL.md`** (folder + filename as above).
 
 ```bash
 mkdir -p gate-pay-x402
-curl -fsSL "https://raw.githubusercontent.com/gate/gatepay-local-mcp/master/skills/SKILL.md" -o gate-pay-x402/SKILL.md
+curl -fsSL "https://raw.githubusercontent.com/gate/gatepay-local-mcp/master/skills/gate-pay-x402/SKILL.md" -o gate-pay-x402/SKILL.md
 ```
 
 Move the `gate-pay-x402` folder into that host’s skills directory.
